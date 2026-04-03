@@ -6,6 +6,9 @@
 #include <thread>
 #include <fcntl.h>
 #include <io.h>
+#include <string>
+#include <codecvt>
+#include <Windows.h>
 
 using namespace std;
 
@@ -27,9 +30,9 @@ const int sw = WIDTH / scale, sh = HEIGHT / scale;
 //Coordinates move from: 0, 0 - top left corner; 5, 5 - downmost right corner.
 const string map[MAP_SIZE] = {
 	"111111",
-	"100001",
-	"100101",
-	"100101",
+	"000001",
+	"000111",
+	"100111",
 	"100001",
 	"111111"
 };
@@ -142,6 +145,7 @@ double dda(Player player) {
 
 
 	//horizontal
+	//yn/xn distance
 	double hyn = -(player.y - floor(player.y));
 	if (not looks_up) {
 		hyn += CELLSIZE;
@@ -185,24 +189,35 @@ double dda(Player player) {
 
 	}
 
+	//выбираем минимальное из расстояний, если одного нет, то автоматически выбираем другое (так как в непересеченном направлении
+	//стоит 1000, что больше любого расстояние на самом деле
 	double return_dist = min(horizontal_distance, vertical_distance);
 	return return_dist;
 }
 
-
+//Функция, испускающая лучи
 vector<double> cast_rays(Player player) {
 	const int fov_deg = to_deg(FOV);
 
+	//Количество лучей и шаг между ними
 	const double step = fov_deg / sw;
 	const int num_rays = sw;
 
+	//изначальный угол, под которым смотрел игрок
+	const double legacy_player = player.angle;
+
+	//начало - слева, player.angle - середина
 	const double start = player.angle - fov_deg/2;
 	player.angle = start;
+
 
 	vector<double> ans;
 
 	for (int i = 0; i < num_rays; i++) {
-		ans.push_back(dda(player));
+		double euclidean_dist = dda(player);
+		double final_dist = euclidean_dist; //* cos(to_rad(legacy_player) - to_rad(player.angle));
+
+		ans.push_back(final_dist);
 		player.angle += step;
 	}
 
@@ -211,7 +226,7 @@ vector<double> cast_rays(Player player) {
 
 
 int main() {
-	//настройка вывода в консоли
+	//настройка вывода в консоли под UTF-16
 	_setmode(_fileno(stdout), _O_U16TEXT);
 
 	//автоповорот камеры
@@ -232,7 +247,7 @@ int main() {
 		vector<double> distances = cast_rays(player);
 
 		//расстояние до экрана
-		const int dx = 1;
+		const int dx = 2;
 		//размер стены
 		const int b = HEIGHT;
 		const int mid = HEIGHT / 2;
@@ -250,37 +265,64 @@ int main() {
 		}
 
 		for (int i = 0; i < sw; i++) {
+			//расстояние до рассматриваемой точки
 			double d = distances[i];
 
-			//верхняя и нижняя часть стены; остальное - пол/небо
+			//высота точки
 			double line_height = b / (d + EPS);
 
+			//верхняя и нижняя часть стены; остальное - пол/небо
 			int upper_wall = mid - (line_height / 2);
 			int lower_wall = mid + (line_height / 2);
 
+			//верхняя и нижняя часть стены в масштабе
 			int s_upwall = upper_wall / scale;
 			int s_lowall = lower_wall / scale;
 
+			//чем дальше стена (т.е больше d), тем бледнее символ
+			//проходимся от самого верха рассчитанной стены до самого низа
 			for (int y = s_upwall; y < s_lowall; y++) {
-				if (d <= 1) {
-					map_grid[y][i] = L'█';
-				} else if (d > 1 and d <= 2) {
-					map_grid[y][i] = L'▓';
-				} else if (d > 2 and d <= 3) {
-					map_grid[y][i] = L'▒';
-				} else {
-					map_grid[y][i] = L'░';
+				if (y >= 0 and y < sh) {
+					if (d <= 1) {
+						map_grid[y][i] = L'█';
+					} else if (d > 1 and d <= 2) {
+						map_grid[y][i] = L'▓';
+					} else if (d > 2 and d <= 3) {
+						map_grid[y][i] = L'▒';
+					} else {
+						map_grid[y][i] = L'░';
+					}
 				}
+				
 			}
 		}
 
-		//"очищаем" консоль
+		//очищаем консоль
 		system("cls");
 
+		//выводим отрендеренный кадр
 		for (wstring s : map_grid) {
-			wcout << s << '\n';
+			wcout << s << endl;
 		}
 
+		//выводим "мини-карту"
+		std::wstring minimap[MAP_SIZE];
+		
+		for (int i = 0; i < MAP_SIZE; i++) {
+			for (char c : map[i]) {
+				minimap[i].push_back(c);
+			}
+		}
+
+		minimap[(int) player.y][(int) player.x] = L'P';
+
+		wcout << endl << endl;
+
+		for (wstring ws : minimap) {
+			wcout << ws << endl;
+		}
+
+		//задерживаем время между кадрами
 		this_thread::sleep_for(chrono::milliseconds(200));
 	}
 }
