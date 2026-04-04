@@ -11,9 +11,9 @@
 #include <Windows.h>
 #include <fstream>
 
-#define and &&
+/*#define and &&
 #define not !
-#define or ||
+#define or ||*/
 
 /**
  *    ______  _____   __     _____   ___   _____ _____ _____ _   _ _____          _____
@@ -55,11 +55,13 @@ const int WIDTH = 800;
 const int HEIGHT = 450;
 const int CELLSIZE = 1;
 const int MAP_SIZE = 10;
-const double EPS = 0.00001;
+const double EPS = 0.0000001;
 const int MAX_DIST = 6;
+const int FPS_CAP = 120;
+const double TARGET_FRAME_TIME = 1.0 / FPS_CAP;
 
 //scale - масштаб
-const int scale = 10;
+const int scale = 9;
 //sw и sh - масштабированные ширина и высота
 const int sw = WIDTH / scale, sh = HEIGHT / scale;
 
@@ -67,7 +69,7 @@ const int sw = WIDTH / scale, sh = HEIGHT / scale;
 const string map[MAP_SIZE] = {
 	"1111111111",
 	"1000000001",
-	"1111110101",
+	"1111010101",
 	"1000000101",
 	"1000011101",
 	"1011011101",
@@ -297,12 +299,12 @@ void set_cursor(int x, int y) {
 
 int main() {
 	//настройка вывода в консоли под UTF-16
-	_setmode(_fileno(stdout), _O_U16TEXT);
+	//_setmode(_fileno(stdout), _O_U16TEXT);
 
 	//оптимизация вывода
 	cin.tie(nullptr);
 	ios_base::sync_with_stdio(false);
-	wcout.rdbuf()->pubsetbuf(nullptr, 4096);
+	wcout.rdbuf()->pubsetbuf(nullptr, 8192);
 
 	//считывание ASCII-рисунка
 	vector<wstring> win_text;
@@ -317,10 +319,12 @@ int main() {
 	wstring frame;
 	frame.reserve(8192);
 
-
 	//задавание стартовых координат и данных игрока
 	double start_angle = 0;
-	Player player{ 1, 1, start_angle };
+	Player player{ 1.1, 1.1, start_angle };
+	const double speed = 1.2;
+	const double rot_speed = 45;
+	const double player_size = EPS;
 
 	auto current_time = chrono::steady_clock::now();
 
@@ -332,14 +336,15 @@ int main() {
 		double FPS = 1.0 / delta_time;
 
 		double rad = to_rad(player.angle);
+
 		//скорость игрока
-		const double speed = 0.1;
-		const double player_size = 0.005;
+		double real_speed = speed * delta_time;
+		double real_rotspeed = rot_speed * delta_time;
 
 		// Движение "Вперед/Назад"
 		if (GetAsyncKeyState('W') & 0x8000) {
-			double next_x = player.x + cos(rad) * speed;
-			double next_y = player.y + sin(rad) * speed;
+			double next_x = player.x + cos(rad) * real_speed;
+			double next_y = player.y + sin(rad) * real_speed;
 
 			next_x = (next_x + (cos(rad) > 0 ? player_size : -player_size));
 			next_y = (next_y + (sin(rad) > 0 ? player_size : -player_size));
@@ -351,8 +356,8 @@ int main() {
 			}
 		}
 		if (GetAsyncKeyState('S') & 0x8000) {
-			double next_x = player.x - cos(rad) * speed;
-			double next_y = player.y - sin(rad) * speed;
+			double next_x = player.x - cos(rad) * real_speed;
+			double next_y = player.y - sin(rad) * real_speed;
 
 			next_x = (next_x + (cos(rad) > 0 ? -player_size : player_size));
 			next_y = (next_y + (sin(rad) > 0 ? -player_size : player_size));
@@ -364,14 +369,14 @@ int main() {
 		}
 		//rotation via key arrows
 		if (GetAsyncKeyState(VK_RIGHT) & 0x8000) {
-			player.angle += 5;
+			player.angle += real_rotspeed;
 
 			if (player.angle >= 360) {
 				player.angle -= 360;
 			}
 
 		} else if (GetAsyncKeyState(VK_LEFT) & 0x8000) {
-			player.angle -= 5;
+			player.angle -= real_rotspeed;
 
 			if (player.angle < 0) {
 				player.angle += 360;
@@ -441,9 +446,7 @@ int main() {
 			}
 		}
 
-		//очищаем консоль
 		//собираем отрендеренный кадр
-		
 
 		for (wstring s : map_grid) {
 			frame += s + L'\n';
@@ -492,14 +495,21 @@ int main() {
 		frame += wstring(debug.begin(), debug.end());
 
 		//выводим отрендеренный кадр
-		wcout << frame << endl;
+		//логика с WinAPI
+		HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
+		DWORD written;
+
+		WriteConsoleW(hConsole, frame.c_str(), frame.size(), &written, NULL);
 
 		frame.clear();
 
-
-		set_cursor(0, 0);
-
 		//задерживаем время между кадрами
+		if (delta_time < TARGET_FRAME_TIME) {
+			double sleepTime = (TARGET_FRAME_TIME - delta_time) * 500;
+			if (sleepTime > 1) {  // Не спать меньше 1ms
+				this_thread::sleep_for(chrono::milliseconds((int)sleepTime));
+			}
+		}
 
 		//инициализация победы
 		if ((int)player.x == MAP_SIZE - 2 and (int)player.y == MAP_SIZE - 1) {
@@ -510,5 +520,8 @@ int main() {
 
 			break;
 		}
+
+		//очищаем консоль
+		set_cursor(0, 0);
 	}
 }
