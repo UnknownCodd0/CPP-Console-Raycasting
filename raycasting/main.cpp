@@ -9,32 +9,70 @@
 #include <string>
 #include <codecvt>
 #include <Windows.h>
+#include <fstream>
+
+
+
+/**
+ *    ______  _____   __     _____   ___   _____ _____ _____ _   _ _____          _____
+ *    | ___ \/ _ \ \ / /    /  __ \ / _ \ /  ___|_   _|_   _| \ | |  __ \        /  __ \ _     _
+ *    | |_/ / /_\ \ V /_____| /  \// /_\ \\ `--.  | |   | | |  \| | |  \/        | /  \/| |_ _| |_
+ *    |    /|  _  |\ /______| |    |  _  | `--. \ | |   | | | . ` | | __         | |  |_   _|_   _|
+ *    | |\ \| | | || |      | \__/\| | | |/\__/ / | |  _| |_| |\  | |_\ \        | \__/\|_|   |_|
+ *    \_| \_\_| |_/\_/       \____/\_| |_/\____/  \_/  \___/\_| \_/\____/         \____/
+ *
+ *
+ *     __
+ *     \ \
+ *    (_) |
+ *      | |
+ *     _| |
+ *    (_) |
+ *     /_/
+ *
+ *     _____       _     _             _               _   _           _                            ______                            _____                _       _    ______                              _
+ *    |  __ \     (_)   | |           | |          _  | | | |         | |                           |  _  \                          |  __ \              (_)     (_)   |  _  \                            | |
+ *    | |  \/_   _ _  __| | ___  ___  | |__  _   _(_) | | | | ___  ___| |_ ___ ______ ___   ___ __  | | | |_____   _____ _ __ ___    | |  \/ ___ _ __ ___  _ _ __  _    | | | |___  ___ _ __  ___  ___  ___| | __
+ *    | | __| | | | |/ _` |/ _ \/ __| | '_ \| | | |   | | | |/ _ \/ __| __/ _ \_  / _` \ \ / / '__| | | | / _ \ \ / / _ \ '__/ __|   | | __ / _ \ '_ ` _ \| | '_ \| |   | | | / _ \/ _ \ '_ \/ __|/ _ \/ _ \ |/ /
+ *    | |_\ \ |_| | | (_| |  __/\__ \ | |_) | |_| |_  \ \_/ /  __/ (__| || (_) / / (_| |\ V /| |_   | |/ /  __/\ V /  __/ |  \__ \_  | |_\ \  __/ | | | | | | | | | |_  | |/ /  __/  __/ |_) \__ \  __/  __/   < _
+ *     \____/\__,_|_|\__,_|\___||___/ |_.__/ \__, (_)  \___/ \___|\___|\__\___/___\__,_| \_/ |_( )  |___/ \___| \_/ \___|_|  |___( )  \____/\___|_| |_| |_|_|_| |_|_( ) |___/ \___|\___| .__/|___/\___|\___|_|\_( )
+ *                                            __/ |                                            |/                                |/                                 |/                 | |                      |/
+ *                                           |___/                                                                                                                                     |_|
+ */
+
+
+
+
 
 using namespace std;
 
 //CONFIG
 const double PI = 3.141592653589793;
-const double FOV = PI / 3;
-const int WIDTH = 1920;
-const int HEIGHT = 1080;
+const double FOV = PI / 2;
+const int WIDTH = 800;
+const int HEIGHT = 450;
 const int CELLSIZE = 1;
-const int MAP_SIZE = 6;
+const int MAP_SIZE = 10;
 const double EPS = 0.00001;
 const int MAX_DIST = 6;
 
 //scale - масштаб
-const int scale = 40;
+const int scale = 10;
 //sw и sh - масштабированные ширина и высота
 const int sw = WIDTH / scale, sh = HEIGHT / scale;
 
 //Coordinates move from: 0, 0 - top left corner; 5, 5 - downmost right corner.
 const string map[MAP_SIZE] = {
-	"111111",
-	"000001",
-	"000111",
-	"100111",
-	"100001",
-	"111111"
+	"1111111111",
+	"1000000001",
+	"1111110101",
+	"1000000101",
+	"1000011101",
+	"1011011101",
+	"1011011101",
+	"1001011101",
+	"1000011101",
+	"1111111101"
 };
 
 
@@ -65,6 +103,14 @@ double dist(Vector2 p1, Vector2 p2) {
 double dda(Player player) {
 	//DDA
 	//these two variables indicate ray's direction
+	while (player.angle < 0) {
+		player.angle += 360;
+	}
+
+	while (player.angle >= 360) {
+		player.angle -= 360;
+	}
+
 	bool looks_up = player.angle > 180 and player.angle < 360;
 	bool looks_right = not (player.angle > 90 and player.angle < 270);
 
@@ -79,8 +125,16 @@ double dda(Player player) {
 
 	double vxn = -(player.x - floor(player.x));
 
-	if (player.angle == 0 or player.angle == 90 or player.angle == 180 or player.angle == 270 or player.angle == 360) {
-		player.angle -= EPS;
+	//padding for segments
+	const int padding = 0.1;
+
+	if (abs(player.angle - 0) <= padding or abs(player.angle - 90) <= padding or abs(player.angle - 180) <= padding
+	or abs(player.angle - 270) <= padding or abs(player.angle - 360) <= padding) {
+		if (player.angle <= 0 or player.angle <= 90 or player.angle <= 180 or player.angle <= 270 or player.angle <= 360) {
+			player.angle -= padding;
+		} else {
+			player.angle += padding;
+		}
 	}
 
 	//makes formula look like vxn = CELLSIZE - player.x + floor(player.x)
@@ -111,17 +165,15 @@ double dda(Player player) {
 	double vertical_distance = 1000;
 
 	//converting the dist to the integer line to int
-	int closest_vx = int(player.x + vxn);
+	int closest_vx = int(player.x + vxn - (looks_right ? 0 : EPS));
 
 	//doing that because int truncates numbers. For example, if ray hit 2, a wall is within [1, 2] but located in map as 1, then we won't be able to detect. by taking off EPS we get 1.999... which is 1 as int
-	if (not looks_right) {
-		closest_vx -= EPS;
-	}
-	
-	int closest_vy = int(player.y + vyn);
+
+	int closest_vy = int(player.y + vyn - (looks_up? EPS : 0));
+
 
 	//the same things but as floats
-	Vector2 closest_v{ player.x + vxn, player.y + vyn };
+	Vector2 closest_v{ player.x + vxn, player.y + vyn};
 
 	//the closest_vy and vx checks are because sometimes the ray might travel past walls
 	//here we check
@@ -130,9 +182,11 @@ double dda(Player player) {
 		vertical_distance = dist(closest_v, player.pos);
 	} else {
 		Vector2 current_point = closest_v;
+		int map_x = (int)(current_point.x - (looks_right ? 0 : EPS));
+		int map_y = (int)(current_point.y - (looks_up ? EPS : 0));
 
-		while ((int)current_point.x < MAP_SIZE and (int)current_point.y < MAP_SIZE and current_point.x >= 0 and current_point.y >= 0 and dist(current_point, player.pos) <= MAX_DIST) {
-			if (map[(int)current_point.y][(int)current_point.x] - '0') {
+		while (map_x < MAP_SIZE and map_y < MAP_SIZE and map_x >= 0 and map_y >= 0 and dist(current_point, player.pos) <= MAX_DIST) {
+			if (map[map_y][map_x] - '0') {
 				vert_intersection = true;
 				vertical_distance = dist(current_point, player.pos);
 				break;
@@ -140,6 +194,9 @@ double dda(Player player) {
 
 			current_point.x += vxs;
 			current_point.y += vys;
+
+			map_x = (int)(current_point.x - (looks_right ? 0 : EPS));
+			map_y = (int)(current_point.y - (looks_up ? EPS : 0));
 		}
 	}
 
@@ -164,10 +221,10 @@ double dda(Player player) {
 	bool hor_intersection = false;
 	double horizontal_distance = 1000;
 
-	int closest_hx = int(player.x + hxn);
-	int closest_hy = int(player.y + hyn);
+	int closest_hx = int(player.x + hxn - (looks_up? EPS : 0));
+	int closest_hy = int(player.y + hyn - (looks_right? 0 : EPS));
 
-	Vector2 closest_h{ player.x + hxn, player.y + hyn };
+	Vector2 closest_h{ player.x + hxn, player.y + hyn};
 
 	if (closest_hy < MAP_SIZE and closest_hx < MAP_SIZE and closest_hy >= 0 and closest_hx >= 0 and map[closest_hy][closest_hx] - '0') {
 		hor_intersection = true;
@@ -175,8 +232,11 @@ double dda(Player player) {
 	} else {
 		Vector2 current_point = closest_h;
 
-		while ((int)current_point.x < MAP_SIZE and (int)current_point.y < MAP_SIZE and current_point.x >= 0 and current_point.y >= 0 and dist(current_point, player.pos) <= MAX_DIST) {
-			if (map[(int)current_point.y][(int)current_point.x] - '0') {
+		int map_x = (int)(current_point.x + (looks_right ? 0 : -EPS));
+		int map_y = (int)(current_point.y + (looks_up ? -EPS : 0));
+
+		while (map_x < MAP_SIZE and map_y < MAP_SIZE and map_x >= 0 and map_y >= 0 and dist(current_point, player.pos) <= MAX_DIST) {
+			if (map[map_y][map_x] - '0') {
 				hor_intersection = true;
 				horizontal_distance = dist(current_point, player.pos);
 				break;
@@ -184,6 +244,9 @@ double dda(Player player) {
 
 			current_point.x += hxs;
 			current_point.y += hys;
+
+			map_x = (int)(current_point.x + (looks_right ? 0 : -EPS));
+			map_y = (int)(current_point.y + (looks_up ? -EPS : 0));
 		}
 
 
@@ -204,7 +267,7 @@ vector<double> cast_rays(Player player) {
 	const int num_rays = sw;
 
 	//изначальный угол, под которым смотрел игрок
-	const double legacy_player = player.angle;
+	double legacy_player = player.angle;
 
 	//начало - слева, player.angle - середина
 	const double start = player.angle - fov_deg/2;
@@ -215,7 +278,7 @@ vector<double> cast_rays(Player player) {
 
 	for (int i = 0; i < num_rays; i++) {
 		double euclidean_dist = dda(player);
-		double final_dist = euclidean_dist; //* cos(to_rad(legacy_player) - to_rad(player.angle));
+		double final_dist = euclidean_dist * cos(to_rad(legacy_player) - to_rad(player.angle));
 
 		ans.push_back(final_dist);
 		player.angle += step;
@@ -224,23 +287,81 @@ vector<double> cast_rays(Player player) {
 	return ans;
 }
 
+void set_cursor(int x, int y) {
+	COORD coord = { (SHORT)x, (SHORT)y };
+	SetConsoleCursorPosition(GetStdHandle(STD_OUTPUT_HANDLE), coord);
+}
+
 
 int main() {
 	//настройка вывода в консоли под UTF-16
 	_setmode(_fileno(stdout), _O_U16TEXT);
 
-	//автоповорот камеры
-	int start_angle = -5;
-	int step = 5;
+	//считывание ASCII-рисунка
+	vector<wstring> win_text;
+	wifstream wtxt("wintext.txt");
+	wstring ws_read_wtxt;
+
+	while (getline(wtxt, ws_read_wtxt)) {
+		win_text.push_back(ws_read_wtxt);
+	}
+
+
+	//задавание стартовых координат и данных игрока
+	double start_angle = 0;
+	Player player{ 1, 1, start_angle };
+
+	
 
 	while (true) {
-		start_angle += 5;
+		double rad = to_rad(player.angle);
+		//скорость игрока
+		const double speed = 0.2;
 
-		if (start_angle >= 360) {
-			start_angle = 0;
+		// Движение "Вперед/Назад"
+		if (GetAsyncKeyState('W') & 0x8000) {
+			double next_x = player.x + cos(rad) * speed;
+			double next_y = player.y + sin(rad) * speed;
+
+			next_x = (next_x + (cos(rad) > 0 ? 0.1 : -0.1));
+			next_y = (next_y + (sin(rad) > 0 ? 0.1 : -0.1));
+
+			// Простая проверка столкновений
+			if (next_x < MAP_SIZE and next_y < MAP_SIZE and map[(int)next_y][(int)next_x] == '0') {
+				player.x = next_x;
+				player.y = next_y;
+			}
 		}
+		if (GetAsyncKeyState('S') & 0x8000) {
+			double next_x = player.x - cos(rad) * speed;
+			double next_y = player.y - sin(rad) * speed;
 
-		Player player{ 2, 2, start_angle};
+			next_x = (next_x + (cos(rad) > 0 ? -0.1 : 0.1));
+			next_y = (next_y + (sin(rad) > 0 ? -0.1 : 0.1));
+
+			if (next_x < MAP_SIZE and next_y < MAP_SIZE and map[(int)next_y][(int)next_x] == '0') {
+				player.x = next_x;
+				player.y = next_y;
+			}
+		}
+		//rotation via key arrows
+		if (GetAsyncKeyState(VK_RIGHT) & 0x8000) {
+			player.angle += 5;
+
+			if (player.angle >= 360) {
+				player.angle -= 360;
+			}
+
+		} else if (GetAsyncKeyState(VK_LEFT) & 0x8000) {
+			player.angle -= 5;
+
+			if (player.angle < 0) {
+				player.angle += 360;
+			}
+		}
+		
+
+		player.pos = {player.x, player.y};
 
 		//информация получена в гайде от: Vectozavr
 		//расстояния до стен в пределах FOV
@@ -260,7 +381,12 @@ int main() {
 			map_grid[i] = wstring();
 
 			for (int j = 0; j < sw; j++) {
-				map_grid[i].push_back('-');
+				if (i < sh/2) {
+					map_grid[i].push_back(' ');
+				} else {
+					map_grid[i].push_back('.');
+				}
+				
 			}
 		}
 
@@ -289,7 +415,7 @@ int main() {
 						map_grid[y][i] = L'▓';
 					} else if (d > 2 and d <= 3) {
 						map_grid[y][i] = L'▒';
-					} else {
+					} else if (d < MAX_DIST) {
 						map_grid[y][i] = L'░';
 					}
 				}
@@ -298,7 +424,7 @@ int main() {
 		}
 
 		//очищаем консоль
-		system("cls");
+		set_cursor(0, 0);
 
 		//выводим отрендеренный кадр
 		for (wstring s : map_grid) {
@@ -322,7 +448,29 @@ int main() {
 			wcout << ws << endl;
 		}
 
+		wcout << "DEBUG INFO: " << "angle: " << player.angle << " direction: ";
+
+		if (player.angle >= 0 and player.angle < 90) {
+			wcout << "right and up";
+		} else if (player.angle >= 90 and player.angle < 180) {
+			wcout << "left and up";
+		} else if (player.angle >= 180 and player.angle < 270) {
+			wcout << "left and down";
+		} else {
+			wcout << "right and down";
+		}
+
 		//задерживаем время между кадрами
-		this_thread::sleep_for(chrono::milliseconds(200));
+		this_thread::sleep_for(chrono::milliseconds(75));
+
+		//инициализация победы
+		if ((int)player.x == MAP_SIZE - 2 and (int)player.y == MAP_SIZE - 1) {
+			wcout << endl;
+			for (wstring wsa : win_text) {
+				wcout << wsa << endl;
+			}
+
+			break;
+		}
 	}
 }
