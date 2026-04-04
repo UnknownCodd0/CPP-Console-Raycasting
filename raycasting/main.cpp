@@ -11,7 +11,9 @@
 #include <Windows.h>
 #include <fstream>
 
-
+#define and &&
+#define not !
+#define or ||
 
 /**
  *    ______  _____   __     _____   ___   _____ _____ _____ _   _ _____          _____
@@ -297,6 +299,11 @@ int main() {
 	//настройка вывода в консоли под UTF-16
 	_setmode(_fileno(stdout), _O_U16TEXT);
 
+	//оптимизация вывода
+	cin.tie(nullptr);
+	ios_base::sync_with_stdio(false);
+	wcout.rdbuf()->pubsetbuf(nullptr, 4096);
+
 	//считывание ASCII-рисунка
 	vector<wstring> win_text;
 	wifstream wtxt("wintext.txt");
@@ -306,25 +313,36 @@ int main() {
 		win_text.push_back(ws_read_wtxt);
 	}
 
+	//заранее создаем кадр для оптимизации
+	wstring frame;
+	frame.reserve(8192);
+
 
 	//задавание стартовых координат и данных игрока
 	double start_angle = 0;
 	Player player{ 1, 1, start_angle };
 
-	
+	auto current_time = chrono::steady_clock::now();
 
 	while (true) {
+		//FPS
+		auto new_time = chrono::steady_clock::now();
+		double delta_time = chrono::duration<double>(new_time - current_time).count();
+		current_time = new_time;
+		double FPS = 1.0 / delta_time;
+
 		double rad = to_rad(player.angle);
 		//скорость игрока
-		const double speed = 0.2;
+		const double speed = 0.1;
+		const double player_size = 0.005;
 
 		// Движение "Вперед/Назад"
 		if (GetAsyncKeyState('W') & 0x8000) {
 			double next_x = player.x + cos(rad) * speed;
 			double next_y = player.y + sin(rad) * speed;
 
-			next_x = (next_x + (cos(rad) > 0 ? 0.1 : -0.1));
-			next_y = (next_y + (sin(rad) > 0 ? 0.1 : -0.1));
+			next_x = (next_x + (cos(rad) > 0 ? player_size : -player_size));
+			next_y = (next_y + (sin(rad) > 0 ? player_size : -player_size));
 
 			// Простая проверка столкновений
 			if (next_x < MAP_SIZE and next_y < MAP_SIZE and map[(int)next_y][(int)next_x] == '0') {
@@ -336,8 +354,8 @@ int main() {
 			double next_x = player.x - cos(rad) * speed;
 			double next_y = player.y - sin(rad) * speed;
 
-			next_x = (next_x + (cos(rad) > 0 ? -0.1 : 0.1));
-			next_y = (next_y + (sin(rad) > 0 ? -0.1 : 0.1));
+			next_x = (next_x + (cos(rad) > 0 ? -player_size : player_size));
+			next_y = (next_y + (sin(rad) > 0 ? -player_size : player_size));
 
 			if (next_x < MAP_SIZE and next_y < MAP_SIZE and map[(int)next_y][(int)next_x] == '0') {
 				player.x = next_x;
@@ -424,14 +442,14 @@ int main() {
 		}
 
 		//очищаем консоль
-		set_cursor(0, 0);
+		//собираем отрендеренный кадр
+		
 
-		//выводим отрендеренный кадр
 		for (wstring s : map_grid) {
-			wcout << s << endl;
+			frame += s + L'\n';
 		}
 
-		//выводим "мини-карту"
+		//добавляем "мини-карту"
 		std::wstring minimap[MAP_SIZE];
 		
 		for (int i = 0; i < MAP_SIZE; i++) {
@@ -442,26 +460,46 @@ int main() {
 
 		minimap[(int) player.y][(int) player.x] = L'P';
 
-		wcout << endl << endl;
+		frame += L'\n\n';
 
 		for (wstring ws : minimap) {
-			wcout << ws << endl;
+			frame += ws + L'\n';
 		}
 
-		wcout << "DEBUG INFO: " << "angle: " << player.angle << " direction: ";
+		//отладочная информация
+		string dir_s;
 
 		if (player.angle >= 0 and player.angle < 90) {
-			wcout << "right and up";
+			dir_s = ("right and up");
 		} else if (player.angle >= 90 and player.angle < 180) {
-			wcout << "left and up";
+			dir_s = ("left and up");
 		} else if (player.angle >= 180 and player.angle < 270) {
-			wcout << "left and down";
+			dir_s = ("left and down");
 		} else {
-			wcout << "right and down";
+			dir_s = ("right and down");
 		}
 
+		string debug;
+
+
+		debug += "DEBUG INFO: ";
+		debug += "angle: "; debug += to_string(player.angle); 
+		debug += " direction: "; debug += dir_s;
+		debug += " x: "; debug += to_string(player.x);
+		debug += " y: "; debug += to_string(player.y);
+		debug += " FPS: "; debug += to_string(FPS);
+
+		frame += wstring(debug.begin(), debug.end());
+
+		//выводим отрендеренный кадр
+		wcout << frame << endl;
+
+		frame.clear();
+
+
+		set_cursor(0, 0);
+
 		//задерживаем время между кадрами
-		this_thread::sleep_for(chrono::milliseconds(75));
 
 		//инициализация победы
 		if ((int)player.x == MAP_SIZE - 2 and (int)player.y == MAP_SIZE - 1) {
