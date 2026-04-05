@@ -79,6 +79,22 @@ const string map[MAP_SIZE] = {
 	"1111111101"
 };
 
+//colored output logic
+//colors enumerator
+enum Color {
+	BLACK = 30, RED, GREEN, YELLOW, BLUE, MAGENTA, CYAN, WHITE
+};
+
+//next two functions use ANSI logic to color the output
+wstring SetColor(Color textColor)
+{
+	return L"\033[" + to_wstring(textColor) + L"m";
+}
+
+wstring ResetColor() { 
+	return L"\033[0m"; 
+}
+
 
 double to_rad(double deg) {
 	return (deg * PI) / (double) 180;
@@ -306,6 +322,10 @@ int main() {
 	ios_base::sync_with_stdio(false);
 	wcout.rdbuf()->pubsetbuf(nullptr, 8192);
 
+	
+
+	//SetConsoleOutputCP(CP_UTF8);
+
 	//считывание ASCII-рисунка
 	vector<wstring> win_text;
 	wifstream wtxt("wintext.txt");
@@ -317,7 +337,7 @@ int main() {
 
 	//заранее создаем кадр для оптимизации
 	wstring frame;
-	frame.reserve(8192);
+	frame.reserve(65536*2);
 
 	//задавание стартовых координат и данных игрока
 	double start_angle = 0;
@@ -327,6 +347,10 @@ int main() {
 	const double player_size = EPS;
 
 	auto current_time = chrono::steady_clock::now();
+
+	//очищаем консоль от прочего текста и переносим курсор в ноль
+	system("cls");
+	set_cursor(0, 0);
 
 	while (true) {
 		//FPS
@@ -340,6 +364,13 @@ int main() {
 		//скорость игрока
 		double real_speed = speed * delta_time;
 		double real_rotspeed = rot_speed * delta_time;
+
+		//очищаем консоль
+		cout << "\033[H";
+		set_cursor(0, 0);
+
+
+		//system("cls");
 
 		// Движение "Вперед/Назад"
 		if (GetAsyncKeyState('W') & 0x8000) {
@@ -398,16 +429,14 @@ int main() {
 
 		//отображаемая в консоли сетка
 		//"-" -пусто, "#" - стена
-		wstring map_grid[sh];
+		wstring map_grid[sh][sw];
 
 		for (int i = 0; i < sh; i++) {
-			map_grid[i] = wstring();
-
 			for (int j = 0; j < sw; j++) {
 				if (i < sh/2) {
-					map_grid[i].push_back(' ');
+					map_grid[i][j] = SetColor(CYAN) + L'░' + ResetColor();
 				} else {
-					map_grid[i].push_back('.');
+					map_grid[i][j] = SetColor(YELLOW) + L'▓' + ResetColor();
 				}
 				
 			}
@@ -433,13 +462,13 @@ int main() {
 			for (int y = s_upwall; y < s_lowall; y++) {
 				if (y >= 0 and y < sh) {
 					if (d <= 1) {
-						map_grid[y][i] = L'█';
+						map_grid[y][i] = SetColor(GREEN) + L'█' + ResetColor();
 					} else if (d > 1 and d <= 2) {
-						map_grid[y][i] = L'▓';
+						map_grid[y][i] = SetColor(GREEN) + L'▓' + ResetColor();
 					} else if (d > 2 and d <= 3) {
-						map_grid[y][i] = L'▒';
+						map_grid[y][i] = SetColor(GREEN) + L'▒' + ResetColor();
 					} else if (d < MAX_DIST) {
-						map_grid[y][i] = L'░';
+						map_grid[y][i] = SetColor(GREEN) + L'░' + ResetColor();
 					}
 				}
 				
@@ -448,8 +477,12 @@ int main() {
 
 		//собираем отрендеренный кадр
 
-		for (wstring s : map_grid) {
-			frame += s + L'\n';
+		for (int y = 0; y < sh; y++) {
+			for (int x = 0; x < sw; x++) {
+				frame += map_grid[y][x];
+			}
+			frame += L"\033[K";
+			frame += L'\n';
 		}
 
 		//добавляем "мини-карту"
@@ -463,9 +496,11 @@ int main() {
 
 		minimap[(int) player.y][(int) player.x] = L'P';
 
-		frame += L'\n\n';
+		frame += L"\033[K";
+		frame += L"\n\n";
 
 		for (wstring ws : minimap) {
+			frame += L"\033[K";
 			frame += ws + L'\n';
 		}
 
@@ -484,7 +519,6 @@ int main() {
 
 		string debug;
 
-
 		debug += "DEBUG INFO: ";
 		debug += "angle: "; debug += to_string(player.angle); 
 		debug += " direction: "; debug += dir_s;
@@ -492,24 +526,30 @@ int main() {
 		debug += " y: "; debug += to_string(player.y);
 		debug += " FPS: "; debug += to_string(FPS);
 
+		frame += L"\033[K";
 		frame += wstring(debug.begin(), debug.end());
+
+		
 
 		//выводим отрендеренный кадр
 		//логика с WinAPI
+		DWORD written = 0;
 		HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
-		DWORD written;
+		
 
 		WriteConsoleW(hConsole, frame.c_str(), frame.size(), &written, NULL);
+		//cout << debug << endl;
+		//wcout << frame << flush;
 
 		frame.clear();
 
 		//задерживаем время между кадрами
-		if (delta_time < TARGET_FRAME_TIME) {
+		/*if (delta_time < TARGET_FRAME_TIME) {
 			double sleepTime = (TARGET_FRAME_TIME - delta_time) * 500;
 			if (sleepTime > 1) {  // Не спать меньше 1ms
 				this_thread::sleep_for(chrono::milliseconds((int)sleepTime));
 			}
-		}
+		}*/
 
 		//инициализация победы
 		if ((int)player.x == MAP_SIZE - 2 and (int)player.y == MAP_SIZE - 1) {
@@ -521,7 +561,6 @@ int main() {
 			break;
 		}
 
-		//очищаем консоль
-		set_cursor(0, 0);
+		
 	}
 }
