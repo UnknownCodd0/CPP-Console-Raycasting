@@ -11,6 +11,11 @@
 #include <Windows.h>
 #include <fstream>
 
+//свои заголовочные файлы
+//файл игровых типов (game::Color, game::Player, game::Vector2)
+#include "game_types.h"
+
+
 /*#define and &&
 #define not !
 #define or ||*/
@@ -43,18 +48,15 @@
  */
 
 
-
-
-
 using namespace std;
 
 //CONFIG
 const double PI = 3.141592653589793;
-const double FOV = PI / 2;
+const double FOV = PI / 3;
 const int WIDTH = 800;
 const int HEIGHT = 450;
 const int CELLSIZE = 1;
-const int MAP_SIZE = 10;
+const int MAP_SIZE = 15;
 const double EPS = 0.0000001;
 const int MAX_DIST = 6;
 const int FPS_CAP = 120;
@@ -67,28 +69,31 @@ const int sw = WIDTH / scale, sh = HEIGHT / scale;
 
 //Coordinates move from: 0, 0 - top left corner; 5, 5 - downmost right corner.
 const string map[MAP_SIZE] = {
-	"1111111111",
-	"1000000001",
-	"1111010101",
-	"1000000101",
-	"1000011101",
-	"1011011101",
-	"1011011101",
-	"1001011101",
-	"1000011101",
-	"1111111101"
+	"111111111111111",
+	"100000000000001",
+	"111101010111011",
+	"100000010111011",
+	"100001110111001",
+	"101101110111011",
+	"101101110001001",
+	"100100100111011",
+	"100001110111111",
+	"101111110111000",
+	"100001110111011",
+	"111101111101001",
+	"111101111101011",
+	"111100000000001",
+	"111111111111111"
 };
 
 //colored output logic
 //colors enumerator
-enum Color {
-	BLACK = 30, RED, GREEN, YELLOW, BLUE, MAGENTA, CYAN, WHITE
-};
+
 
 //next two functions use ANSI logic to color the output
-wstring SetColor(Color textColor)
+wstring SetColor(game::Color textColor)
 {
-	return L"\033[" + to_wstring(textColor) + L"m";
+	return L"\033[" + to_wstring((int) textColor) + L"m";
 }
 
 wstring ResetColor() { 
@@ -104,25 +109,15 @@ double to_deg(double rad) {
 	return rad * 180 / PI;
 }
 
-struct Vector2 {
-	double x, y;
-};
 
-struct Player {
-	//ox and oy - self coordinates; angle - direction angle (in degrees)
-	double x, y;
-	double angle;
-	Vector2 pos{x, y};
-};
-
-//TODO: change euclidean distance after managing DDA & rendering to avoid fisheye
-double dist(Vector2 p1, Vector2 p2) {
+double dist(game::Vector2 p1, game::Vector2 p2) {
 	return sqrt((p2.x - p1.x) * (p2.x - p1.x) + (p2.y - p1.y) * (p2.y - p1.y));
 }
 
-double dda(Player player) {
+double dda(game::Player player) {
 	//DDA
-	//these two variables indicate ray's direction
+
+	//заключаем угол между 0 и 360
 	while (player.angle < 0) {
 		player.angle += 360;
 	}
@@ -131,6 +126,7 @@ double dda(Player player) {
 		player.angle -= 360;
 	}
 
+	//смотрит ли игрок влево/вправо
 	bool looks_up = player.angle > 180 and player.angle < 360;
 	bool looks_right = not (player.angle > 90 and player.angle < 270);
 
@@ -141,20 +137,50 @@ double dda(Player player) {
 	//xs/ys are variabes that mean distance from (xn; yn) to the next integer very/horizont line
 
 	//calculating distance
-	//!!!all formulas are in that one video and Gemini chat
+	//!!!all formulas are in that one video and Gemini and Deepseek chat
 
 	double vxn = -(player.x - floor(player.x));
 
 	//padding for segments
-	const int padding = 0.1;
-
+	const double padding = 0.07;
+	
+	//if tan is 0/90/180/270/360 we get an error. so we slightly change it
 	if (abs(player.angle - 0) <= padding or abs(player.angle - 90) <= padding or abs(player.angle - 180) <= padding
-	or abs(player.angle - 270) <= padding or abs(player.angle - 360) <= padding) {
-		if (player.angle <= 0 or player.angle <= 90 or player.angle <= 180 or player.angle <= 270 or player.angle <= 360) {
+		or abs(player.angle - 270) <= padding or abs(player.angle - 360) <= padding) {
+		//the closest wrong angle to the player
+		int closest = -1;
+
+		//checking the closest layer by using the same interval method
+		if (abs(player.angle - 0) <= padding) {
+			closest = 0;
+		} else if (abs(player.angle - 90) <= padding) {
+			closest = 90;
+		} else if (abs(player.angle - 180) <= padding) {
+			closest = 180;
+		} else if (abs(player.angle - 270) <= padding) {
+			closest = 270;
+		} else if (abs(player.angle - 360) <= padding) {
+			closest = 360;
+		}
+
+		//fixing the player angle
+		//making sure the player.angle is never within the dangerous zone
+		//while (abs(player.angle - closest) <= padding) {
+		if (player.angle >= closest) {
 			player.angle -= padding;
 		} else {
 			player.angle += padding;
 		}
+		//}
+	}
+
+	//заключаем угол между 0 и 360 (заново, после корректировок)
+	while (player.angle < 0) {
+		player.angle += 360;
+	}
+
+	while (player.angle >= 360) {
+		player.angle -= 360;
 	}
 
 	//makes formula look like vxn = CELLSIZE - player.x + floor(player.x)
@@ -193,15 +219,20 @@ double dda(Player player) {
 
 
 	//the same things but as floats
-	Vector2 closest_v{ player.x + vxn, player.y + vyn};
+	game::Vector2 closest_v{ player.x + vxn, player.y + vyn};
 
 	//the closest_vy and vx checks are because sometimes the ray might travel past walls
-	//here we check
+	//here we check if the closest integer tile for a wall
 	if (closest_vy < MAP_SIZE and closest_vx < MAP_SIZE and closest_vy >= 0 and closest_vx >= 0 and map[closest_vy][closest_vx] - '0') {
 		vert_intersection = true;
 		vertical_distance = dist(closest_v, player.pos);
+	//if we couldn't find, then we look through the map
 	} else {
-		Vector2 current_point = closest_v;
+		//текущая точка
+		game::Vector2 current_point = closest_v;
+
+		//координаты целых чисел, которые проверяем. Отнимаем эпсилон, если смотрит влево/вверх, чтобы "заглянуть" внутрь клетки из-за 
+		//целочисленной логики
 		int map_x = (int)(current_point.x - (looks_right ? 0 : EPS));
 		int map_y = (int)(current_point.y - (looks_up ? EPS : 0));
 
@@ -212,9 +243,11 @@ double dda(Player player) {
 				break;
 			}
 
+			//прибавляем расстояние, т.е двигаем луч
 			current_point.x += vxs;
 			current_point.y += vys;
 
+			//обновляем
 			map_x = (int)(current_point.x - (looks_right ? 0 : EPS));
 			map_y = (int)(current_point.y - (looks_up ? EPS : 0));
 		}
@@ -244,13 +277,13 @@ double dda(Player player) {
 	int closest_hx = int(player.x + hxn - (looks_up? EPS : 0));
 	int closest_hy = int(player.y + hyn - (looks_right? 0 : EPS));
 
-	Vector2 closest_h{ player.x + hxn, player.y + hyn};
+	game::Vector2 closest_h{ player.x + hxn, player.y + hyn};
 
 	if (closest_hy < MAP_SIZE and closest_hx < MAP_SIZE and closest_hy >= 0 and closest_hx >= 0 and map[closest_hy][closest_hx] - '0') {
 		hor_intersection = true;
 		horizontal_distance = dist(player.pos, closest_h);
 	} else {
-		Vector2 current_point = closest_h;
+		game::Vector2 current_point = closest_h;
 
 		int map_x = (int)(current_point.x + (looks_right ? 0 : -EPS));
 		int map_y = (int)(current_point.y + (looks_up ? -EPS : 0));
@@ -279,28 +312,54 @@ double dda(Player player) {
 }
 
 //Функция, испускающая лучи
-vector<double> cast_rays(Player player) {
+vector<double> cast_rays(game::Player player) {
 	const int fov_deg = to_deg(FOV);
 
+	//заключаем угол игрока между 0 и 360
+	while (player.angle < 0) {
+		player.angle += 360;
+	}
+
+	while (player.angle >= 360) {
+		player.angle -= 360;
+	}
+
 	//Количество лучей и шаг между ними
-	const double step = fov_deg / sw;
+	const double step = double(fov_deg) / double(sw);
 	const int num_rays = sw;
 
 	//изначальный угол, под которым смотрел игрок
 	double legacy_player = player.angle;
 
 	//начало - слева, player.angle - середина
-	const double start = player.angle - fov_deg/2;
+	double start = player.angle - fov_deg/2;
+
+	//нормализуем стартовый угол
+	while (start < 0) {
+		start += 360;
+	}
+
+	while (start >= 360) {
+		start -= 360;
+	}
+
+	//назначаем угол игрока в стартовый, потом будем его двигать по всему FOV.
 	player.angle = start;
 
-
+	//массив расстояний лучей
 	vector<double> ans;
 
+	//пускаем лучи
 	for (int i = 0; i < num_rays; i++) {
+		//сначала считаем евклидово расстояние
 		double euclidean_dist = dda(player);
+
+		//умножаем на косинус, чтобы избежать "рыбьего глаза", то есть разного расстояние до одной и той же стены
 		double final_dist = euclidean_dist * cos(to_rad(legacy_player) - to_rad(player.angle));
 
 		ans.push_back(final_dist);
+
+		//двигаем игрока
 		player.angle += step;
 	}
 
@@ -314,22 +373,17 @@ void set_cursor(int x, int y) {
 
 
 int main() {
-	//настройка вывода в консоли под UTF-16
-	//_setmode(_fileno(stdout), _O_U16TEXT);
+	//РЕНДЕРИНГ && ДВИЖЕНИЕ
 
-	//оптимизация вывода
+	//Оптимизация вывода
 	cin.tie(nullptr);
 	ios_base::sync_with_stdio(false);
 	wcout.rdbuf()->pubsetbuf(nullptr, 8192);
 
-	
-
-	//SetConsoleOutputCP(CP_UTF8);
-
 	//считывание ASCII-рисунка
-	vector<wstring> win_text;
-	wifstream wtxt("wintext.txt");
-	wstring ws_read_wtxt;
+	vector<string> win_text;
+	ifstream wtxt("wintext.txt");
+	string ws_read_wtxt;
 
 	while (getline(wtxt, ws_read_wtxt)) {
 		win_text.push_back(ws_read_wtxt);
@@ -341,7 +395,7 @@ int main() {
 
 	//задавание стартовых координат и данных игрока
 	double start_angle = 0;
-	Player player{ 1.1, 1.1, start_angle };
+	game::Player player{ 1.1, 1.1, start_angle };
 	const double speed = 1.2;
 	const double rot_speed = 45;
 	const double player_size = EPS;
@@ -354,7 +408,9 @@ int main() {
 
 	while (true) {
 		//FPS
+		//время сейчас
 		auto new_time = chrono::steady_clock::now();
+
 		double delta_time = chrono::duration<double>(new_time - current_time).count();
 		current_time = new_time;
 		double FPS = 1.0 / delta_time;
@@ -363,16 +419,12 @@ int main() {
 
 		//скорость игрока
 		double real_speed = speed * delta_time;
+
+		//скорость игрока в данном кадре
 		double real_rotspeed = rot_speed * delta_time;
 
-		//очищаем консоль
-		cout << "\033[H";
-		set_cursor(0, 0);
 
-
-		//system("cls");
-
-		// Движение "Вперед/Назад"
+		// Движение "Вперед/Назад" по вектору направления
 		if (GetAsyncKeyState('W') & 0x8000) {
 			double next_x = player.x + cos(rad) * real_speed;
 			double next_y = player.y + sin(rad) * real_speed;
@@ -398,7 +450,7 @@ int main() {
 				player.y = next_y;
 			}
 		}
-		//rotation via key arrows
+		//Поворот "Влево-вправо"
 		if (GetAsyncKeyState(VK_RIGHT) & 0x8000) {
 			player.angle += real_rotspeed;
 
@@ -414,34 +466,43 @@ int main() {
 			}
 		}
 		
-
+		//обновляем game::Vector2 позицию игрока
 		player.pos = {player.x, player.y};
 
+
+
+		/////РЕНДЕРИНГ
 		//информация получена в гайде от: Vectozavr
 		//расстояния до стен в пределах FOV
 		vector<double> distances = cast_rays(player);
 
 		//расстояние до экрана
-		const int dx = 2;
+		const int dx = 1;
 		//размер стены
 		const int b = HEIGHT;
+
+		//центр экрана
 		const int mid = HEIGHT / 2;
 
 		//отображаемая в консоли сетка
 		//"-" -пусто, "#" - стена
 		wstring map_grid[sh][sw];
 
+		//заполняем небом и полом
 		for (int i = 0; i < sh; i++) {
 			for (int j = 0; j < sw; j++) {
+				//верхняя половина - небо
 				if (i < sh/2) {
-					map_grid[i][j] = SetColor(CYAN) + L'░' + ResetColor();
+					map_grid[i][j] = SetColor(game::CYAN) + L'░' + ResetColor();
+				//пол
 				} else {
-					map_grid[i][j] = SetColor(YELLOW) + L'▓' + ResetColor();
+					map_grid[i][j] = SetColor(game::YELLOW) + L'░' + ResetColor();
 				}
 				
 			}
 		}
 
+		//рендерим все пиксели на экране (sw - ширина экрана в "пикселях")
 		for (int i = 0; i < sw; i++) {
 			//расстояние до рассматриваемой точки
 			double d = distances[i];
@@ -459,16 +520,17 @@ int main() {
 
 			//чем дальше стена (т.е больше d), тем бледнее символ
 			//проходимся от самого верха рассчитанной стены до самого низа
+			//в map_grid[y][i] хранится wstring, состоящий из: ANSI-префикс цвета, отрендеренный символ, ANSI-суффикс цвета
 			for (int y = s_upwall; y < s_lowall; y++) {
 				if (y >= 0 and y < sh) {
 					if (d <= 1) {
-						map_grid[y][i] = SetColor(GREEN) + L'█' + ResetColor();
+						map_grid[y][i] = SetColor(game::GREEN) + L'█' + ResetColor();
 					} else if (d > 1 and d <= 2) {
-						map_grid[y][i] = SetColor(GREEN) + L'▓' + ResetColor();
+						map_grid[y][i] = SetColor(game::GREEN) + L'▓' + ResetColor();
 					} else if (d > 2 and d <= 3) {
-						map_grid[y][i] = SetColor(GREEN) + L'▒' + ResetColor();
+						map_grid[y][i] = SetColor(game::GREEN) + L'▒' + ResetColor();
 					} else if (d < MAX_DIST) {
-						map_grid[y][i] = SetColor(GREEN) + L'░' + ResetColor();
+						map_grid[y][i] = SetColor(game::GREEN) + L'░' + ResetColor();
 					}
 				}
 				
@@ -476,7 +538,7 @@ int main() {
 		}
 
 		//собираем отрендеренный кадр
-
+		//сбор основного кадра
 		for (int y = 0; y < sh; y++) {
 			for (int x = 0; x < sw; x++) {
 				frame += map_grid[y][x];
@@ -494,11 +556,10 @@ int main() {
 			}
 		}
 
+		//клетка с игроком
 		minimap[(int) player.y][(int) player.x] = L'P';
 
-		frame += L"\033[K";
-		frame += L"\n\n";
-
+		//очищаем строку ANSI-кодом, затем строку и \n
 		for (wstring ws : minimap) {
 			frame += L"\033[K";
 			frame += ws + L'\n';
@@ -517,6 +578,7 @@ int main() {
 			dir_s = ("right and down");
 		}
 
+		//сбор отладочной информации
 		string debug;
 
 		debug += "DEBUG INFO: ";
@@ -526,41 +588,50 @@ int main() {
 		debug += " y: "; debug += to_string(player.y);
 		debug += " FPS: "; debug += to_string(FPS);
 
+		//добавляем ANSI-код удаления строки, а потом на чистую строку добавляем отладучную инфу
 		frame += L"\033[K";
 		frame += wstring(debug.begin(), debug.end());
-
 		
 
 		//выводим отрендеренный кадр
-		//логика с WinAPI
+		//логика вывода с WinAPI
 		DWORD written = 0;
 		HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
 		
 
 		WriteConsoleW(hConsole, frame.c_str(), frame.size(), &written, NULL);
-		//cout << debug << endl;
-		//wcout << frame << flush;
 
+		//очищаем кадр
 		frame.clear();
 
 		//задерживаем время между кадрами
-		/*if (delta_time < TARGET_FRAME_TIME) {
+		if (delta_time < TARGET_FRAME_TIME) {
 			double sleepTime = (TARGET_FRAME_TIME - delta_time) * 500;
 			if (sleepTime > 1) {  // Не спать меньше 1ms
 				this_thread::sleep_for(chrono::milliseconds((int)sleepTime));
 			}
-		}*/
+		}
 
-		//инициализация победы
-		if ((int)player.x == MAP_SIZE - 2 and (int)player.y == MAP_SIZE - 1) {
-			wcout << endl;
-			for (wstring wsa : win_text) {
-				wcout << wsa << endl;
-			}
-
+		//инициализация победы: заканчиваем цикл если игрок победил
+		if ((int)player.x == 14 and (int)player.y == 9) {
 			break;
 		}
 
 		
 	}
+
+	//Вывод цветного текста "YOU WIN!"
+	this_thread::sleep_for(chrono::milliseconds(500));
+
+	system("cls");
+
+	for (string wsa : win_text) {
+		wcout << SetColor(game::RED) + wstring(wsa.begin(), wsa.end()) + ResetColor() << endl;
+	}
+
+	this_thread::sleep_for(chrono::milliseconds(2000));
+
+	return 0;
 }
+
+//КОНЕЦ!
