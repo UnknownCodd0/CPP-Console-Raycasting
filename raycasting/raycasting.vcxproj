@@ -232,6 +232,7 @@
     <ClCompile Include="main.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <Text Include="gun.txt" />
     <Text Include="wintext.txt" />
   </ItemGroup>
   <ItemGroup>

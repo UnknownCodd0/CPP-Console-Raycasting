@@ -10,6 +10,8 @@
 #include <codecvt>
 #include <Windows.h>
 #include <fstream>
+#include <cassert>
+
 
 //свои заголовочные файлы
 //файл игровых типов (game::Color, game::Player, game::Vector2)
@@ -52,7 +54,7 @@ using namespace std;
 
 //CONFIG
 const double PI = 3.141592653589793;
-const double FOV = PI / 3;
+const double FOV = PI / 2.5;
 const int WIDTH = 800;
 const int HEIGHT = 450;
 const int CELLSIZE = 1;
@@ -63,7 +65,7 @@ const int FPS_CAP = 120;
 const double TARGET_FRAME_TIME = 1.0 / FPS_CAP;
 
 //scale - масштаб
-const int scale = 9;
+const int scale = 8;
 //sw и sh - масштабированные ширина и высота
 const int sw = WIDTH / scale, sh = HEIGHT / scale;
 
@@ -366,6 +368,7 @@ vector<double> cast_rays(game::Player player) {
 	return ans;
 }
 
+//Функиця скоростного очищения экрана
 void set_cursor(int x, int y) {
 	COORD coord = { (SHORT)x, (SHORT)y };
 	SetConsoleCursorPosition(GetStdHandle(STD_OUTPUT_HANDLE), coord);
@@ -380,21 +383,15 @@ int main() {
 	ios_base::sync_with_stdio(false);
 	wcout.rdbuf()->pubsetbuf(nullptr, 8192);
 
-	//считывание ASCII-рисунка
-	vector<string> win_text;
-	ifstream wtxt("wintext.txt");
-	string ws_read_wtxt;
-
-	while (getline(wtxt, ws_read_wtxt)) {
-		win_text.push_back(ws_read_wtxt);
-	}
-
-	//заранее создаем кадр для оптимизации
+	//заранее создаем кадр для оптимизации вывода
 	wstring frame;
+
+	//освобождаем достаточно места
 	frame.reserve(65536*2);
 
 	//задавание стартовых координат и данных игрока
 	double start_angle = 0;
+	//1.1 чтобы игрок не спавнился в стене
 	game::Player player{ 1.1, 1.1, start_angle };
 	const double speed = 1.2;
 	const double rot_speed = 45;
@@ -406,15 +403,56 @@ int main() {
 	system("cls");
 	set_cursor(0, 0);
 
+	//Считываем ASCII-арт пистолета и записываем в вектор
+	vector<wstring> pistol;
+	wifstream gun_file("gun.txt");
+	wstring current_line_gun;
+
+	//размер пистолета
+	const int pistol_width = 19;
+	const int pistol_height = 21;
+
+	//Вектор, содержащий целочисленные значения индексов последних реальных символ строки пистолета. 
+	//Дальше идут пробелы, которые есть чисто ради выравнивания длин строк, и которые не должны быть закрашены.
+	vector<int> pistol_last_symbol;
+
+	//считываем аски из файла
+	while (getline(gun_file, current_line_gun)) {
+		pistol.push_back(wstring(current_line_gun.begin(), current_line_gun.end()));
+		pistol_last_symbol.push_back(pistol.back().size()-1);
+
+		while (pistol.back().size() < pistol_width) {
+			pistol.back().push_back(' ');
+		}
+	}
+
+	//координаты, с которых начинается пистолет
+	//гарантируем, что пистолет поместится и будет чуть выше низа/правого конца экрана
+	int pistol_start_y = sh - pistol_height - sh/10;
+	int pistol_start_x = sw - pistol_height - sw/10;
+
+	//Закрываем открытый файл
+	gun_file.close();
+
+
+	//Вектор ascii прямоугольников рендеринга
+	//Чем больше значение в квадратных скобках, тем бледнее квадрат. Всего 4.
+	vector<wchar_t> rectangles = {L'█', L'▓', L'▒', L'░'};
+
+	//Основной цикл игры (mainloop)
 	while (true) {
 		//FPS
 		//время сейчас
 		auto new_time = chrono::steady_clock::now();
 
+		//Разница во времени между текущим и прошлым кадром
 		double delta_time = chrono::duration<double>(new_time - current_time).count();
 		current_time = new_time;
+
+		//мгновенный FPS
 		double FPS = 1.0 / delta_time;
 
+		//направление игрока в радианах
 		double rad = to_rad(player.angle);
 
 		//скорость игрока
@@ -426,18 +464,25 @@ int main() {
 
 		// Движение "Вперед/Назад" по вектору направления
 		if (GetAsyncKeyState('W') & 0x8000) {
+			//двигаем игрока по вектору
 			double next_x = player.x + cos(rad) * real_speed;
 			double next_y = player.y + sin(rad) * real_speed;
 
+			//Не позволяем игроку вплотную подойти к стене, отнимаем маленькое число, если он пожошел
 			next_x = (next_x + (cos(rad) > 0 ? player_size : -player_size));
 			next_y = (next_y + (sin(rad) > 0 ? player_size : -player_size));
 
 			// Простая проверка столкновений
 			if (next_x < MAP_SIZE and next_y < MAP_SIZE and map[(int)next_y][(int)next_x] == '0') {
+				//Откатываем изменения, чтобы игрок шел плавно
+				next_x = (next_x - (cos(rad) > 0 ? player_size : -player_size));
+				next_y = (next_y - (sin(rad) > 0 ? player_size : -player_size));
+
 				player.x = next_x;
 				player.y = next_y;
 			}
 		}
+		//Та же логика, что и при движении вперед, только наоборот: двигаемся назад и проверяем стену сзади
 		if (GetAsyncKeyState('S') & 0x8000) {
 			double next_x = player.x - cos(rad) * real_speed;
 			double next_y = player.y - sin(rad) * real_speed;
@@ -446,6 +491,9 @@ int main() {
 			next_y = (next_y + (sin(rad) > 0 ? -player_size : player_size));
 
 			if (next_x < MAP_SIZE and next_y < MAP_SIZE and map[(int)next_y][(int)next_x] == '0') {
+				next_x = (next_x - (cos(rad) > 0 ? -player_size : player_size));
+				next_y = (next_y - (sin(rad) > 0 ? -player_size : player_size));
+
 				player.x = next_x;
 				player.y = next_y;
 			}
@@ -493,10 +541,10 @@ int main() {
 			for (int j = 0; j < sw; j++) {
 				//верхняя половина - небо
 				if (i < sh/2) {
-					map_grid[i][j] = SetColor(game::CYAN) + L'░' + ResetColor();
+					map_grid[i][j] = SetColor(game::CYAN) + rectangles[3] + ResetColor();
 				//пол
 				} else {
-					map_grid[i][j] = SetColor(game::YELLOW) + L'░' + ResetColor();
+					map_grid[i][j] = SetColor(game::YELLOW) + rectangles[3] + ResetColor();
 				}
 				
 			}
@@ -524,32 +572,25 @@ int main() {
 			for (int y = s_upwall; y < s_lowall; y++) {
 				if (y >= 0 and y < sh) {
 					if (d <= 1) {
-						map_grid[y][i] = SetColor(game::GREEN) + L'█' + ResetColor();
+						map_grid[y][i] = SetColor(game::GREEN) + rectangles[0] + ResetColor();
 					} else if (d > 1 and d <= 2) {
-						map_grid[y][i] = SetColor(game::GREEN) + L'▓' + ResetColor();
+						map_grid[y][i] = SetColor(game::GREEN) + rectangles[1] + ResetColor();
 					} else if (d > 2 and d <= 3) {
-						map_grid[y][i] = SetColor(game::GREEN) + L'▒' + ResetColor();
+						map_grid[y][i] = SetColor(game::GREEN) + rectangles[2] + ResetColor();
 					} else if (d < MAX_DIST) {
-						map_grid[y][i] = SetColor(game::GREEN) + L'░' + ResetColor();
+						map_grid[y][i] = SetColor(game::GREEN) + rectangles[3] + ResetColor();
 					}
 				}
 				
 			}
 		}
 
-		//собираем отрендеренный кадр
-		//сбор основного кадра
-		for (int y = 0; y < sh; y++) {
-			for (int x = 0; x < sw; x++) {
-				frame += map_grid[y][x];
-			}
-			frame += L"\033[K";
-			frame += L'\n';
-		}
-
-		//добавляем "мини-карту"
+		//!!!собираем отрендеренный кадр
+	
+		//собираем "мини-карту"
 		std::wstring minimap[MAP_SIZE];
-		
+
+
 		for (int i = 0; i < MAP_SIZE; i++) {
 			for (char c : map[i]) {
 				minimap[i].push_back(c);
@@ -557,17 +598,69 @@ int main() {
 		}
 
 		//клетка с игроком
-		minimap[(int) player.y][(int) player.x] = L'P';
+		minimap[(int)player.y][(int)player.x] = L'P';
+		//итератор по мини-карте
+		int ws_i = 0;
 
-		//очищаем строку ANSI-кодом, затем строку и \n
-		for (wstring ws : minimap) {
+		//итератор по пистолету. py и px - это относительные координаты относительно начала пистолета
+		int p_y = 0, p_x = 0;
+
+		//Эта переменная говорит, встречали ли мы такую часть пистолета, которая не является пустым местом? Если да, то мы закрашиваем пробелы. Иначе нет
+		bool met_pistol_parts = false;
+
+		//сбор основного кадра + мини-карты справа
+		for (int y = 0; y < sh; y++) {
+			for (int x = 0; x < sw; x++) {
+				//проверяем, должны ли мы нарисовать пистолет: есть ли по pistol_start_x/y пистолет, не вылез ли он за свой размер/размер экрана
+				if (y >= pistol_start_y and x >= pistol_start_x 
+				and p_x < min(pistol_width, sw) and p_y < min(pistol_height, sh)) {
+					//Проверяем, не является ли символ пробелом. Если нет, то в кадр добавляем часть пистолета, иначе - карту
+					
+					if (pistol[p_y][p_x] != ' ') {
+						frame += pistol[p_y][p_x];
+						met_pistol_parts = true;
+					//закрашиваем внутренность пистолета
+					} else if (met_pistol_parts and p_x < pistol_last_symbol[p_y]) {
+						frame += SetColor(game::BLACK) + rectangles[2] + ResetColor();
+					} //Иначе добавляем часть карты, чтобы пистолет был прозрачным
+					else {
+						frame += map_grid[y][x];
+					}
+
+					//Прибавляем p_x в любом случае, так как все, что дальше, является пистолетом
+					p_x++;
+				
+				//иначе просто добавляем в кадр фрагмент карты
+				} else {
+					frame += map_grid[y][x];
+				}
+			}
+
+			if (y >= pistol_start_y) {
+				p_y++;
+				p_x = 0;
+				met_pistol_parts = false;
+			}
+			
+
+			//очищаем строку
 			frame += L"\033[K";
-			frame += ws + L'\n';
-		}
 
+			//добавляем мини-карту справа
+			if (ws_i < MAP_SIZE) {
+				//отступ
+				frame += L"                 ";
+				frame += minimap[ws_i];
+				ws_i++;
+			}
+
+			frame += L'\n';
+		}
+		
 		//отладочная информация
 		string dir_s;
 
+		//расчет угла игрока
 		if (player.angle >= 0 and player.angle < 90) {
 			dir_s = ("right and up");
 		} else if (player.angle >= 90 and player.angle < 180) {
@@ -590,6 +683,8 @@ int main() {
 
 		//добавляем ANSI-код удаления строки, а потом на чистую строку добавляем отладучную инфу
 		frame += L"\033[K";
+
+		//добавляем отладочную инфу
 		frame += wstring(debug.begin(), debug.end());
 		
 
@@ -597,8 +692,11 @@ int main() {
 		//логика вывода с WinAPI
 		DWORD written = 0;
 		HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
-		
 
+		//очищаем консоль от прошлых кадров
+		set_cursor(0, 0);
+
+		//Выводим текст
 		WriteConsoleW(hConsole, frame.c_str(), frame.size(), &written, NULL);
 
 		//очищаем кадр
@@ -606,6 +704,7 @@ int main() {
 
 		//задерживаем время между кадрами
 		if (delta_time < TARGET_FRAME_TIME) {
+			//выводится из формулы: FPS = 1/deltaTime
 			double sleepTime = (TARGET_FRAME_TIME - delta_time) * 500;
 			if (sleepTime > 1) {  // Не спать меньше 1ms
 				this_thread::sleep_for(chrono::milliseconds((int)sleepTime));
@@ -616,8 +715,15 @@ int main() {
 		if ((int)player.x == 14 and (int)player.y == 9) {
 			break;
 		}
+	}
 
-		
+	//считывание ASCII-рисунка победы
+	vector<string> win_text;
+	ifstream wtxt("wintext.txt");
+	string ws_read_wtxt;
+
+	while (getline(wtxt, ws_read_wtxt)) {
+		win_text.push_back(ws_read_wtxt);
 	}
 
 	//Вывод цветного текста "YOU WIN!"
