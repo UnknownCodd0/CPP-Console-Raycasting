@@ -58,7 +58,7 @@ const double FOV = PI / 2.5;
 const int WIDTH = 800;
 const int HEIGHT = 450;
 const int CELLSIZE = 1;
-const int MAP_SIZE = 15;
+const int MAP_SIZE = 20;
 const double EPS = 0.0000001;
 const int MAX_DIST = 6;
 const int FPS_CAP = 120;
@@ -70,28 +70,35 @@ const int scale = 8;
 const int sw = WIDTH / scale, sh = HEIGHT / scale;
 
 //Coordinates move from: 0, 0 - top left corner; 5, 5 - downmost right corner.
+//0 - пусто, 1 - стена, 2 - враг
 const string map[MAP_SIZE] = {
-	"111111111111111",
-	"100000000000001",
-	"111101010111011",
-	"100000010111011",
-	"100001110111001",
-	"101101110111011",
-	"101101110001001",
-	"100100100111011",
-	"100001110111111",
-	"101111110111000",
-	"100001110111011",
-	"111101111101001",
-	"111101111101011",
-	"111100000000001",
-	"111111111111111"
+	"11111111111111111111",
+	"10000000200000000021",
+	"10000001011101111111",
+	"10000001011101111111",
+	"10000011011100000001",
+	"10110011000000000001",
+	"10110000000000000001",
+	"10010000011101101101",
+	"10000000011111101101",
+	"10111111011100000101",
+	"10000111011100010101",
+	"10010001100001001101",
+	"10000011100001101101",
+	"10110000000000101101",
+	"10110111111111101101",
+	"10000000000000001101",
+	"10000000000000001101",
+	"10000000000111111101",
+	"11111111111111111101",
+	"11111111111111111101"
 };
 
+
+
+//!!!!!!!!!!!!!!!УТИЛИТНЫЕ ФУНКЦИИ & КЛАССЫ
+
 //colored output logic
-//colors enumerator
-
-
 //next two functions use ANSI logic to color the output
 wstring SetColor(game::Color textColor)
 {
@@ -116,7 +123,13 @@ double dist(game::Vector2 p1, game::Vector2 p2) {
 	return sqrt((p2.x - p1.x) * (p2.x - p1.x) + (p2.y - p1.y) * (p2.y - p1.y));
 }
 
-double dda(game::Player player) {
+
+
+//!!!!!!!!!!!ОСНОВНАЯ ЛОГИКА
+
+//"Сердце" всего raycasting. Расчитывает длину до ближайшего объекта (точки 1 или 2 на карте)
+//Возвращает расстояние до объекта и его тип
+game::RayResult dda(game::Player player) {
 	//DDA
 
 	//заключаем угол между 0 и 360
@@ -144,7 +157,7 @@ double dda(game::Player player) {
 	double vxn = -(player.x - floor(player.x));
 
 	//padding for segments
-	const double padding = 0.07;
+	const double padding = 0.05;
 	
 	//if tan is 0/90/180/270/360 we get an error. so we slightly change it
 	if (abs(player.angle - 0) <= padding or abs(player.angle - 90) <= padding or abs(player.angle - 180) <= padding
@@ -184,6 +197,15 @@ double dda(game::Player player) {
 	while (player.angle >= 360) {
 		player.angle -= 360;
 	}
+
+	//Возвращаемый объект. Содержит расстояние до объекта и тип объекта
+	game::RayResult ret_value = {1000, 0};
+
+	//Копии таких объектов для вертикали и горизонтали
+	game::RayResult vray = {1000, 0};
+	game::RayResult hray = {1000, 0};
+
+	//!!МАТЕМАТИЧЕСКИЙ РАСЧЕТ
 
 	//makes formula look like vxn = CELLSIZE - player.x + floor(player.x)
 	if (looks_right) {
@@ -228,6 +250,7 @@ double dda(game::Player player) {
 	if (closest_vy < MAP_SIZE and closest_vx < MAP_SIZE and closest_vy >= 0 and closest_vx >= 0 and map[closest_vy][closest_vx] - '0') {
 		vert_intersection = true;
 		vertical_distance = dist(closest_v, player.pos);
+		vray = { vertical_distance, map[closest_vy][closest_vx] - '0' };
 	//if we couldn't find, then we look through the map
 	} else {
 		//текущая точка
@@ -239,9 +262,11 @@ double dda(game::Player player) {
 		int map_y = (int)(current_point.y - (looks_up ? EPS : 0));
 
 		while (map_x < MAP_SIZE and map_y < MAP_SIZE and map_x >= 0 and map_y >= 0 and dist(current_point, player.pos) <= MAX_DIST) {
+			//если мы врезались в какой-то объект (>0)
 			if (map[map_y][map_x] - '0') {
 				vert_intersection = true;
 				vertical_distance = dist(current_point, player.pos);
+				vray = {vertical_distance, map[map_y][map_x] - '0'};
 				break;
 			}
 
@@ -284,6 +309,7 @@ double dda(game::Player player) {
 	if (closest_hy < MAP_SIZE and closest_hx < MAP_SIZE and closest_hy >= 0 and closest_hx >= 0 and map[closest_hy][closest_hx] - '0') {
 		hor_intersection = true;
 		horizontal_distance = dist(player.pos, closest_h);
+		hray = { horizontal_distance, map[closest_hy][closest_hx] - '0' };
 	} else {
 		game::Vector2 current_point = closest_h;
 
@@ -294,6 +320,9 @@ double dda(game::Player player) {
 			if (map[map_y][map_x] - '0') {
 				hor_intersection = true;
 				horizontal_distance = dist(current_point, player.pos);
+
+				hray = {horizontal_distance, map[map_y][map_x] - '0'};
+
 				break;
 			}
 
@@ -306,15 +335,107 @@ double dda(game::Player player) {
 
 
 	}
+	//выбираем минимальное из расстояний, если одного нет, то выбираем другое. Если оба не пересеклись, то возвращаем {1000, 0}, что гарантирует,
+	//что стена не будет отрендерена
+	if (hor_intersection and not vert_intersection) {
+		ret_value = hray;
+	} else if (vert_intersection and not hor_intersection) {
+		ret_value = vray;
+	} else {
+		if (vray.dist < hray.dist) {
+			ret_value = vray;
+		} else {
+			ret_value = hray;
+		}
+	}
 
-	//выбираем минимальное из расстояний, если одного нет, то автоматически выбираем другое (так как в непересеченном направлении
-	//стоит 1000, что больше любого расстояние на самом деле
-	double return_dist = min(horizontal_distance, vertical_distance);
-	return return_dist;
+	return ret_value;
 }
 
-//Функция, испускающая лучи
-vector<double> cast_rays(game::Player player) {
+
+class Pistol {
+public:
+	//размеры пистолета
+	const int pistol_width = 19;
+	const int pistol_height = 21;
+
+	//длина луча выстрела пистолета
+	const int MAX_SHOOT = 2;
+
+	//ASCII-содержание рисунка
+	std::vector<std::wstring> pistol_body;
+	//файл с рисунком
+	std::wifstream gun_file;
+	std::wstring current_line_gun;
+
+	//Вектор, содержащий целочисленные значения индексов последних реальных символ строки пистолета. 
+	//Дальше идут пробелы, которые есть чисто ради выравнивания длин строк, и которые не должны быть закрашены.
+	std::vector<int> pistol_last_symbol;
+
+	//координаты, с которых начинается пистолет
+	int pistol_start_y;
+	int pistol_start_x;
+
+	//координаты, с которых стреляет (пускает луч) пистолет (близко к дулу)
+	int shoot_x = pistol_start_x + sw / 15;
+	int shoot_y = pistol_start_y;
+
+
+	//Конструктор
+	Pistol(std::string filename) {
+		//открываем файл с указанным названием
+		gun_file.open(filename);
+
+		//считываем аски-рисунок из файла
+		while (std::getline(gun_file, current_line_gun)) {
+			pistol_body.push_back(std::wstring(current_line_gun.begin(), current_line_gun.end()));
+			//добавляем в вектор индекс последнего встречного непробельного символа
+			pistol_last_symbol.push_back(pistol_body.back().size() - 1);
+
+			//выравниваем все строки пробелами под один и тот же размер (макс. строки). Посчитал вручную размер максимальной строки
+			while (pistol_body.back().size() < pistol_width) {
+				pistol_body.back().push_back(' ');
+			}
+		}
+
+		//гарантируем, что пистолет поместится и будет чуть выше низа/правого конца экрана на 1/10 часть
+		pistol_start_y = sh - pistol_height - sh / 10;
+		pistol_start_x = sw - pistol_height - sw / 10;
+
+		//Закрываем открытый файл
+		gun_file.close();
+	}
+
+
+	//Функция, реализующая выстрел пистолета
+	//возвращает id противника, в которого попали. Если пуля ни в кого не попала, возвращает -1
+	int shoot(game::Player player, vector<game::Enemy> enemys) {
+		//Испускаем луч и измеряем расстояние до ближайшего объекта (может быть и стеной и врагом)
+		game::RayResult result = dda(player);
+		double dist = result.dist;
+
+		//Если расстояние больше допустимого, до значит точно не попал
+		if (dist > this->MAX_SHOOT) {
+			return -1;
+		}
+
+		//Считаем координаты пересечения через тригонометрию
+		double end_x = player.x + cos(to_rad(player.angle)) * dist;
+		double end_y = player.y + sin(to_rad(player.angle)) * dist;
+
+		return -1;
+		//Проверяем, попали ли во врага
+		//for (game::Enemy enemy : enemys) {
+			//if ()
+		//}
+	}
+};
+
+
+
+
+//Функция, испускающая множество лучей в зоне видимости (FOV) игрока
+vector <game::RayResult> cast_rays(game::Player player) {
 	const int fov_deg = to_deg(FOV);
 
 	//заключаем угол игрока между 0 и 360
@@ -348,18 +469,19 @@ vector<double> cast_rays(game::Player player) {
 	//назначаем угол игрока в стартовый, потом будем его двигать по всему FOV.
 	player.angle = start;
 
-	//массив расстояний лучей
-	vector<double> ans;
+	//массив расстояний лучей и тип пересечения
+	vector<game::RayResult> ans;
 
 	//пускаем лучи
 	for (int i = 0; i < num_rays; i++) {
 		//сначала считаем евклидово расстояние
-		double euclidean_dist = dda(player);
+		game::RayResult current_intersection = dda(player);
+		double euclidean_dist = current_intersection.dist;
 
 		//умножаем на косинус, чтобы избежать "рыбьего глаза", то есть разного расстояние до одной и той же стены
 		double final_dist = euclidean_dist * cos(to_rad(legacy_player) - to_rad(player.angle));
 
-		ans.push_back(final_dist);
+		ans.push_back({ final_dist, current_intersection.type });
 
 		//двигаем игрока
 		player.angle += step;
@@ -373,6 +495,8 @@ void set_cursor(int x, int y) {
 	COORD coord = { (SHORT)x, (SHORT)y };
 	SetConsoleCursorPosition(GetStdHandle(STD_OUTPUT_HANDLE), coord);
 }
+
+
 
 
 int main() {
@@ -403,41 +527,15 @@ int main() {
 	system("cls");
 	set_cursor(0, 0);
 
-	//Считываем ASCII-арт пистолета и записываем в вектор
-	vector<wstring> pistol;
-	wifstream gun_file("gun.txt");
-	wstring current_line_gun;
-
-	//размер пистолета
-	const int pistol_width = 19;
-	const int pistol_height = 21;
-
-	//Вектор, содержащий целочисленные значения индексов последних реальных символ строки пистолета. 
-	//Дальше идут пробелы, которые есть чисто ради выравнивания длин строк, и которые не должны быть закрашены.
-	vector<int> pistol_last_symbol;
-
-	//считываем аски из файла
-	while (getline(gun_file, current_line_gun)) {
-		pistol.push_back(wstring(current_line_gun.begin(), current_line_gun.end()));
-		pistol_last_symbol.push_back(pistol.back().size()-1);
-
-		while (pistol.back().size() < pistol_width) {
-			pistol.back().push_back(' ');
-		}
-	}
-
-	//координаты, с которых начинается пистолет
-	//гарантируем, что пистолет поместится и будет чуть выше низа/правого конца экрана
-	int pistol_start_y = sh - pistol_height - sh/10;
-	int pistol_start_x = sw - pistol_height - sw/10;
-
-	//Закрываем открытый файл
-	gun_file.close();
-
+	//Инициализируем класс пистолета
+	Pistol pistol{"gun.txt"};
 
 	//Вектор ascii прямоугольников рендеринга
 	//Чем больше значение в квадратных скобках, тем бледнее квадрат. Всего 4.
 	vector<wchar_t> rectangles = {L'█', L'▓', L'▒', L'░'};
+
+	//инициализация врагов
+	game::Enemy enemy1{1, 18};
 
 	//Основной цикл игры (mainloop)
 	while (true) {
@@ -447,6 +545,8 @@ int main() {
 
 		//Разница во времени между текущим и прошлым кадром
 		double delta_time = chrono::duration<double>(new_time - current_time).count();
+
+		//ставим прошлый кадр = текущий, чтобы потом на следующем кадре провернуть вышеуказанный код
 		current_time = new_time;
 
 		//мгновенный FPS
@@ -518,11 +618,10 @@ int main() {
 		player.pos = {player.x, player.y};
 
 
-
-		/////РЕНДЕРИНГ
+		/////!!!!!РЕНДЕРИНГ
 		//информация получена в гайде от: Vectozavr
-		//расстояния до стен в пределах FOV
-		vector<double> distances = cast_rays(player);
+		//расстояния до стен в пределах FOV и их тип пересечения
+		vector<game::RayResult> distances = cast_rays(player);
 
 		//расстояние до экрана
 		const int dx = 1;
@@ -550,13 +649,22 @@ int main() {
 			}
 		}
 
-		//рендерим все пиксели на экране (sw - ширина экрана в "пикселях")
+
+
+		//Собираем все пиксели на экране (sw - ширина экрана в "пикселях")
 		for (int i = 0; i < sw; i++) {
 			//расстояние до рассматриваемой точки
-			double d = distances[i];
+			double d = distances[i].dist;
+
+			int collision_type = distances[i].type;
 
 			//высота точки
 			double line_height = b / (d + EPS);
+
+			//Если объект - враг, то делаем его ниже
+			if (distances[i].type == 2) {
+				line_height /= 2;
+			}
 
 			//верхняя и нижняя часть стены; остальное - пол/небо
 			int upper_wall = mid - (line_height / 2);
@@ -571,14 +679,18 @@ int main() {
 			//в map_grid[y][i] хранится wstring, состоящий из: ANSI-префикс цвета, отрендеренный символ, ANSI-суффикс цвета
 			for (int y = s_upwall; y < s_lowall; y++) {
 				if (y >= 0 and y < sh) {
-					if (d <= 1) {
-						map_grid[y][i] = SetColor(game::GREEN) + rectangles[0] + ResetColor();
-					} else if (d > 1 and d <= 2) {
-						map_grid[y][i] = SetColor(game::GREEN) + rectangles[1] + ResetColor();
-					} else if (d > 2 and d <= 3) {
-						map_grid[y][i] = SetColor(game::GREEN) + rectangles[2] + ResetColor();
-					} else if (d < MAX_DIST) {
-						map_grid[y][i] = SetColor(game::GREEN) + rectangles[3] + ResetColor();
+					if (collision_type == 2) {
+						map_grid[y][i] = SetColor(game::RED) + rectangles[0] + ResetColor();
+					} else {
+						if (d <= 1) {
+							map_grid[y][i] = SetColor(game::GREEN) + rectangles[0] + ResetColor();
+						} else if (d > 1 and d <= 2) {
+							map_grid[y][i] = SetColor(game::GREEN) + rectangles[1] + ResetColor();
+						} else if (d > 2 and d <= 3) {
+							map_grid[y][i] = SetColor(game::GREEN) + rectangles[2] + ResetColor();
+						} else if (d < MAX_DIST) {
+							map_grid[y][i] = SetColor(game::GREEN) + rectangles[3] + ResetColor();
+						}
 					}
 				}
 				
@@ -612,15 +724,14 @@ int main() {
 		for (int y = 0; y < sh; y++) {
 			for (int x = 0; x < sw; x++) {
 				//проверяем, должны ли мы нарисовать пистолет: есть ли по pistol_start_x/y пистолет, не вылез ли он за свой размер/размер экрана
-				if (y >= pistol_start_y and x >= pistol_start_x 
-				and p_x < min(pistol_width, sw) and p_y < min(pistol_height, sh)) {
+				if (y >= pistol.pistol_start_y and x >= pistol.pistol_start_x 
+				and p_x < min(pistol.pistol_width, sw) and p_y < min(pistol.pistol_height, sh)) {
 					//Проверяем, не является ли символ пробелом. Если нет, то в кадр добавляем часть пистолета, иначе - карту
-					
-					if (pistol[p_y][p_x] != ' ') {
-						frame += pistol[p_y][p_x];
+					if (pistol.pistol_body[p_y][p_x] != ' ') {
+						frame += pistol.pistol_body[p_y][p_x];
 						met_pistol_parts = true;
 					//закрашиваем внутренность пистолета
-					} else if (met_pistol_parts and p_x < pistol_last_symbol[p_y]) {
+					} else if (met_pistol_parts and p_x < pistol.pistol_last_symbol[p_y]) {
 						frame += SetColor(game::BLACK) + rectangles[2] + ResetColor();
 					} //Иначе добавляем часть карты, чтобы пистолет был прозрачным
 					else {
@@ -636,7 +747,7 @@ int main() {
 				}
 			}
 
-			if (y >= pistol_start_y) {
+			if (y >= pistol.pistol_start_y) {
 				p_y++;
 				p_x = 0;
 				met_pistol_parts = false;
@@ -712,7 +823,7 @@ int main() {
 		}
 
 		//инициализация победы: заканчиваем цикл если игрок победил
-		if ((int)player.x == 14 and (int)player.y == 9) {
+		if ((int)player.x == 18 and (int)player.y == 19) {
 			break;
 		}
 	}
@@ -729,13 +840,12 @@ int main() {
 	//Вывод цветного текста "YOU WIN!"
 	this_thread::sleep_for(chrono::milliseconds(500));
 
+	//Очищаем экран, чтобы туда вывести текст
 	system("cls");
 
 	for (string wsa : win_text) {
 		wcout << SetColor(game::RED) + wstring(wsa.begin(), wsa.end()) + ResetColor() << endl;
 	}
-
-	this_thread::sleep_for(chrono::milliseconds(2000));
 
 	return 0;
 }
