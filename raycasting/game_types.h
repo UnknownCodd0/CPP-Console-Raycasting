@@ -27,8 +27,10 @@ namespace game {
 
 	struct RayResult {
 		double dist;
+
 		//0 - nothing, 1 - wall, 2 - enemy
 		int type;
+		int intersection_x, intersection_y;
 	};
 
 	struct Enemy {

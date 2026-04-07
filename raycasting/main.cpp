@@ -69,31 +69,39 @@ const int scale = 8;
 //sw и sh - масштабированные ширина и высота
 const int sw = WIDTH / scale, sh = HEIGHT / scale;
 
+//Количество живых врагов
+int enemys_left = 5;
+
 //Coordinates move from: 0, 0 - top left corner; 5, 5 - downmost right corner.
 //0 - пусто, 1 - стена, 2 - враг
-const string map[MAP_SIZE] = {
+string map[MAP_SIZE] = {
 	"11111111111111111111",
 	"10000000200000000021",
 	"10000001011101111111",
 	"10000001011101111111",
 	"10000011011100000001",
-	"10110011000000000001",
+	"10112011000000000001",
 	"10110000000000000001",
 	"10010000011101101101",
 	"10000000011111101101",
 	"10111111011100000101",
 	"10000111011100010101",
-	"10010001100001001101",
+	"10010001100021001101",
 	"10000011100001101101",
 	"10110000000000101101",
 	"10110111111111101101",
 	"10000000000000001101",
-	"10000000000000001101",
+	"10000000020000001101",
 	"10000000000111111101",
 	"11111111111111111101",
 	"11111111111111111101"
 };
 
+//Звуки. Частота звуков
+const DWORD sound_footstep = 100;
+const DWORD sound_shoot = 80;
+const int sound_length_step = 10;
+const int sound_length_shoot = 200;
 
 
 //!!!!!!!!!!!!!!!УТИЛИТНЫЕ ФУНКЦИИ & КЛАССЫ
@@ -199,11 +207,11 @@ game::RayResult dda(game::Player player) {
 	}
 
 	//Возвращаемый объект. Содержит расстояние до объекта и тип объекта
-	game::RayResult ret_value = {1000, 0};
+	game::RayResult ret_value = {1000, 0, -1, -1};
 
 	//Копии таких объектов для вертикали и горизонтали
-	game::RayResult vray = {1000, 0};
-	game::RayResult hray = {1000, 0};
+	game::RayResult vray = {1000, 0, -1, -1};
+	game::RayResult hray = {1000, 0, -1, -1};
 
 	//!!МАТЕМАТИЧЕСКИЙ РАСЧЕТ
 
@@ -250,7 +258,7 @@ game::RayResult dda(game::Player player) {
 	if (closest_vy < MAP_SIZE and closest_vx < MAP_SIZE and closest_vy >= 0 and closest_vx >= 0 and map[closest_vy][closest_vx] - '0') {
 		vert_intersection = true;
 		vertical_distance = dist(closest_v, player.pos);
-		vray = { vertical_distance, map[closest_vy][closest_vx] - '0' };
+		vray = { vertical_distance, map[closest_vy][closest_vx] - '0', closest_vx, closest_vy};
 	//if we couldn't find, then we look through the map
 	} else {
 		//текущая точка
@@ -266,7 +274,7 @@ game::RayResult dda(game::Player player) {
 			if (map[map_y][map_x] - '0') {
 				vert_intersection = true;
 				vertical_distance = dist(current_point, player.pos);
-				vray = {vertical_distance, map[map_y][map_x] - '0'};
+				vray = {vertical_distance, map[map_y][map_x] - '0', map_x, map_y};
 				break;
 			}
 
@@ -309,7 +317,7 @@ game::RayResult dda(game::Player player) {
 	if (closest_hy < MAP_SIZE and closest_hx < MAP_SIZE and closest_hy >= 0 and closest_hx >= 0 and map[closest_hy][closest_hx] - '0') {
 		hor_intersection = true;
 		horizontal_distance = dist(player.pos, closest_h);
-		hray = { horizontal_distance, map[closest_hy][closest_hx] - '0' };
+		hray = { horizontal_distance, map[closest_hy][closest_hx] - '0', closest_hx, closest_hy};
 	} else {
 		game::Vector2 current_point = closest_h;
 
@@ -321,7 +329,7 @@ game::RayResult dda(game::Player player) {
 				hor_intersection = true;
 				horizontal_distance = dist(current_point, player.pos);
 
-				hray = {horizontal_distance, map[map_y][map_x] - '0'};
+				hray = {horizontal_distance, map[map_y][map_x] - '0', map_x, map_y};
 
 				break;
 			}
@@ -360,7 +368,7 @@ public:
 	const int pistol_height = 21;
 
 	//длина луча выстрела пистолета
-	const int MAX_SHOOT = 2;
+	const int MAX_SHOOT = 4;
 
 	//ASCII-содержание рисунка
 	std::vector<std::wstring> pistol_body;
@@ -379,6 +387,10 @@ public:
 	//координаты, с которых стреляет (пускает луч) пистолет (близко к дулу)
 	int shoot_x = pistol_start_x + sw / 15;
 	int shoot_y = pistol_start_y;
+
+	//Перезарядка пистолета
+	const int COOLDOWN_TIME = 5;
+	double current_cd = 0;
 
 
 	//Конструктор
@@ -408,26 +420,41 @@ public:
 
 
 	//Функция, реализующая выстрел пистолета
-	//возвращает id противника, в которого попали. Если пуля ни в кого не попала, возвращает -1
-	int shoot(game::Player player, vector<game::Enemy> enemys) {
+	//Напрямую изменяет карту, если мы попали
+	void shoot(game::Player player) {
+		//Если пистолет не перезарядился, то он не стреляет
+		if (current_cd > 0) {
+			return;
+		}
+
+		//Включаем звук выстрела
+		Beep(sound_shoot, sound_length_shoot);
+
+		//Обновляем перезарядку
+		current_cd = COOLDOWN_TIME;
+
 		//Испускаем луч и измеряем расстояние до ближайшего объекта (может быть и стеной и врагом)
 		game::RayResult result = dda(player);
 		double dist = result.dist;
 
 		//Если расстояние больше допустимого, до значит точно не попал
 		if (dist > this->MAX_SHOOT) {
-			return -1;
+			return;
 		}
 
-		//Считаем координаты пересечения через тригонометрию
-		double end_x = player.x + cos(to_rad(player.angle)) * dist;
-		double end_y = player.y + sin(to_rad(player.angle)) * dist;
+		//Проверяем, попали ли мы по врагу
+		if (result.type == 2) {
+			map[result.intersection_y][result.intersection_x] = '0';
+			enemys_left--;
+		}
 
-		return -1;
-		//Проверяем, попали ли во врага
-		//for (game::Enemy enemy : enemys) {
-			//if ()
-		//}
+		return;
+	}
+
+	void reload(double deltaTime) {
+		if (current_cd > 0) {
+			current_cd -= deltaTime;
+		}
 	}
 };
 
@@ -497,11 +524,8 @@ void set_cursor(int x, int y) {
 }
 
 
-
-
 int main() {
 	//РЕНДЕРИНГ && ДВИЖЕНИЕ
-
 	//Оптимизация вывода
 	cin.tie(nullptr);
 	ios_base::sync_with_stdio(false);
@@ -534,6 +558,10 @@ int main() {
 	//Чем больше значение в квадратных скобках, тем бледнее квадрат. Всего 4.
 	vector<wchar_t> rectangles = {L'█', L'▓', L'▒', L'░'};
 
+	//Перезарядка звука шага
+	const double STEP_COOLDOWN = 0.7;
+	double current_step_cooldown = 0;
+
 	//инициализация врагов
 	game::Enemy enemy1{1, 18};
 
@@ -542,28 +570,37 @@ int main() {
 		//FPS
 		//время сейчас
 		auto new_time = chrono::steady_clock::now();
-
 		//Разница во времени между текущим и прошлым кадром
 		double delta_time = chrono::duration<double>(new_time - current_time).count();
-
 		//ставим прошлый кадр = текущий, чтобы потом на следующем кадре провернуть вышеуказанный код
 		current_time = new_time;
 
 		//мгновенный FPS
 		double FPS = 1.0 / delta_time;
-
 		//направление игрока в радианах
 		double rad = to_rad(player.angle);
-
 		//скорость игрока
 		double real_speed = speed * delta_time;
-
 		//скорость игрока в данном кадре
 		double real_rotspeed = rot_speed * delta_time;
+
+		//ПЕРЕЗАРЯДКИ
+		//Перезаряжаем пистолет каждый кадр
+		pistol.reload(delta_time);
+
+		if (current_step_cooldown > 0) {
+			current_step_cooldown -= delta_time;
+		}
 
 
 		// Движение "Вперед/Назад" по вектору направления
 		if (GetAsyncKeyState('W') & 0x8000) {
+			//Издаем звук каждую секунду
+			if (current_step_cooldown <= 0) {
+				Beep(sound_footstep, sound_length_step);
+				current_step_cooldown = STEP_COOLDOWN;
+			}
+
 			//двигаем игрока по вектору
 			double next_x = player.x + cos(rad) * real_speed;
 			double next_y = player.y + sin(rad) * real_speed;
@@ -584,6 +621,12 @@ int main() {
 		}
 		//Та же логика, что и при движении вперед, только наоборот: двигаемся назад и проверяем стену сзади
 		if (GetAsyncKeyState('S') & 0x8000) {
+			//Издаем звук каждую секунду
+			if (current_step_cooldown <= 0) {
+				Beep(sound_footstep, sound_length_step);
+				current_step_cooldown = STEP_COOLDOWN;
+			}
+
 			double next_x = player.x - cos(rad) * real_speed;
 			double next_y = player.y - sin(rad) * real_speed;
 
@@ -612,6 +655,11 @@ int main() {
 			if (player.angle < 0) {
 				player.angle += 360;
 			}
+		}
+
+		//Проверка нажатия на пробел и выстрела пистолета
+		if (GetAsyncKeyState(VK_SPACE) & 0x8000) {
+			pistol.shoot(player);
 		}
 		
 		//обновляем game::Vector2 позицию игрока
@@ -656,15 +704,11 @@ int main() {
 			//расстояние до рассматриваемой точки
 			double d = distances[i].dist;
 
+			//вид объекта, с которым мы столкнулись
 			int collision_type = distances[i].type;
 
-			//высота точки
-			double line_height = b / (d + EPS);
-
-			//Если объект - враг, то делаем его ниже
-			if (distances[i].type == 2) {
-				line_height /= 2;
-			}
+			//высота точки. Исходит из подобия треугольников. line_height/dx = HEIGHT/d
+			double line_height = b * dx / (d + EPS);
 
 			//верхняя и нижняя часть стены; остальное - пол/небо
 			int upper_wall = mid - (line_height / 2);
@@ -698,10 +742,9 @@ int main() {
 		}
 
 		//!!!собираем отрендеренный кадр
-	
+
 		//собираем "мини-карту"
 		std::wstring minimap[MAP_SIZE];
-
 
 		for (int i = 0; i < MAP_SIZE; i++) {
 			for (char c : map[i]) {
@@ -791,6 +834,7 @@ int main() {
 		debug += " x: "; debug += to_string(player.x);
 		debug += " y: "; debug += to_string(player.y);
 		debug += " FPS: "; debug += to_string(FPS);
+		debug += " Enemys: "; debug += to_string(enemys_left);
 
 		//добавляем ANSI-код удаления строки, а потом на чистую строку добавляем отладучную инфу
 		frame += L"\033[K";
@@ -823,7 +867,7 @@ int main() {
 		}
 
 		//инициализация победы: заканчиваем цикл если игрок победил
-		if ((int)player.x == 18 and (int)player.y == 19) {
+		if ((int)player.x == 18 and (int)player.y == 19 and enemys_left == 0) {
 			break;
 		}
 	}
