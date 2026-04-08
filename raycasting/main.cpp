@@ -13,6 +13,7 @@
 #include <cassert>
 #include <thread>
 #include <utility>
+#include <locale>
 
 
 //свои заголовочные файлы
@@ -398,9 +399,12 @@ game::RayResult dda(game::Player player) {
 
 class Pistol {
 public:
-	//размеры пистолета
+	//размеры обычного пистолета
 	const int pistol_width = 19;
 	const int pistol_height = 21;
+
+	//высота стреляющего пистолета (ширина обоих равна)
+	const int pistolfire_height = 23;
 
 	//длина луча выстрела пистолета
 	const int MAX_SHOOT = 4;
@@ -409,15 +413,20 @@ public:
 	std::vector<std::wstring> pistol_body;
 	//файл с рисунком
 	std::wifstream gun_file;
-	std::wstring current_line_gun;
-
 	//Вектор, содержащий целочисленные значения индексов последних реальных символ строки пистолета. 
 	//Дальше идут пробелы, которые есть чисто ради выравнивания длин строк, и которые не должны быть закрашены.
 	std::vector<int> pistol_last_symbol;
 
+	//Те же самые 3 переменные, но для ASCII-арта стреляющего пистолета
+	std::vector<std::wstring> pistol_fire_body;
+	std::ifstream gun_fire_file;
+	std::vector<int> pistol_fire_last_symbol;
+	
 	//координаты, с которых начинается пистолет
 	int pistol_start_y;
 	int pistol_start_x;
+
+	int pistol_fire_start_y;
 
 	//координаты, с которых стреляет (пускает луч) пистолет (близко к дулу)
 	int shoot_x = pistol_start_x + sw / 15;
@@ -427,11 +436,21 @@ public:
 	const int COOLDOWN_TIME = 5;
 	double current_cd = 0;
 
+	bool shooting = false;
+	double shooting_animation_length = 0.5;
+	double shooting_animation_for = 0;
+
 
 	//Конструктор
-	Pistol(std::string filename) {
+	Pistol(std::string filename, std::string filename_fire) {
 		//открываем файл с указанным названием
 		gun_file.open(filename);
+		gun_fire_file.open(filename_fire);
+
+		//Текущая строка в файле
+		std::wstring current_line_gun;
+		std::string current_line_gunfire;
+
 
 		//считываем аски-рисунок из файла
 		while (std::getline(gun_file, current_line_gun)) {
@@ -445,12 +464,26 @@ public:
 			}
 		}
 
+		//Закрываем открытый файл
+		gun_file.close();
+
+		//та же логика, но для стреляющего пистоля
+		while (std::getline(gun_fire_file, current_line_gunfire)) {
+			pistol_fire_body.push_back(std::wstring(current_line_gunfire.begin(), current_line_gunfire.end()));
+			pistol_fire_last_symbol.push_back(pistol_fire_body.back().size() - 1);
+
+			while (pistol_fire_body.back().size() < pistol_width) {
+				pistol_fire_body.back().push_back(' ');
+			}
+		}
+
+		gun_fire_file.close();
+
 		//гарантируем, что пистолет поместится и будет чуть выше низа/правого конца экрана на 1/10 часть
 		pistol_start_y = sh - pistol_height - sh / 10;
 		pistol_start_x = sw - pistol_height - sw / 10;
 
-		//Закрываем открытый файл
-		gun_file.close();
+		pistol_fire_start_y = sh - pistolfire_height - sh/10;
 	}
 
 
@@ -461,6 +494,9 @@ public:
 		if (current_cd > 0) {
 			return;
 		}
+
+		shooting = true;
+		
 
 		//Включаем звук выстрела
 		AsyncBeep(sound_shoot, sound_length_shoot);
@@ -608,7 +644,7 @@ int main() {
 	set_cursor(0, 0);
 
 	//Инициализируем класс пистолета
-	Pistol pistol{"gun.txt"};
+	Pistol pistol{"gun.txt", "gun_fire.txt"};
 
 	//Вектор ascii прямоугольников рендеринга
 	//Чем больше значение в квадратных скобках, тем бледнее квадрат. Всего 4.
@@ -658,6 +694,17 @@ int main() {
 		//"Перезаряжаем" время между шагами игрока
 		if (current_step_cooldown > 0) {
 			current_step_cooldown -= delta_time;
+		}
+
+		//Сокращаем время показа стреляющего пистолета
+		if (pistol.shooting) {
+			if (pistol.shooting_animation_for < pistol.shooting_animation_length) {
+				pistol.shooting_animation_for += delta_time;
+			} else {
+				pistol.shooting = false;
+				pistol.shooting_animation_for = 0;
+			}
+			
 		}
 
 		//Добавляем на карту врагов, чтобы при рассчетах они не врезались друг в друга
@@ -863,31 +910,67 @@ int main() {
 		//сбор основного кадра + мини-карты справа
 		for (int y = 0; y < sh; y++) {
 			for (int x = 0; x < sw; x++) {
-				//проверяем, должны ли мы нарисовать пистолет: есть ли по pistol_start_x/y пистолет, не вылез ли он за свой размер/размер экрана
-				if (y >= pistol.pistol_start_y and x >= pistol.pistol_start_x 
-				and p_x < min(pistol.pistol_width, sw) and p_y < min(pistol.pistol_height, sh)) {
-					//Проверяем, не является ли символ пробелом. Если нет, то в кадр добавляем часть пистолета, иначе - карту
-					if (pistol.pistol_body[p_y][p_x] != ' ') {
-						frame += pistol.pistol_body[p_y][p_x];
-						met_pistol_parts = true;
-					//закрашиваем внутренность пистолета
-					} else if (met_pistol_parts and p_x < pistol.pistol_last_symbol[p_y]) {
-						frame += SetColor(game::BLACK) + rectangles[2] + ResetColor();
-					} //Иначе добавляем часть карты, чтобы пистолет был прозрачным
-					else {
+				if (!pistol.shooting) {
+					//проверяем, должны ли мы нарисовать пистолет: есть ли по pistol_start_x/y пистолет, не вылез ли он за свой размер/размер экрана
+					if (y >= pistol.pistol_start_y and x >= pistol.pistol_start_x
+						and p_x < min(pistol.pistol_width, sw) and p_y < min(pistol.pistol_height, sh)) {
+						//Проверяем, не является ли символ пробелом. Если нет, то в кадр добавляем часть пистолета, иначе - карту
+						if (pistol.pistol_body[p_y][p_x] != ' ') {
+							frame += pistol.pistol_body[p_y][p_x];
+							met_pistol_parts = true;
+							//закрашиваем внутренность пистолета
+						} else if (met_pistol_parts and p_x < pistol.pistol_last_symbol[p_y]) {
+							frame += SetColor(game::BLACK) + rectangles[2] + ResetColor();
+						} //Иначе добавляем часть карты, чтобы пистолет был прозрачным
+						else {
+							frame += map_grid[y][x];
+						}
+
+						//Прибавляем p_x в любом случае, так как все, что дальше, является пистолетом
+						p_x++;
+
+						//иначе просто добавляем в кадр фрагмент карты
+					} else {
 						frame += map_grid[y][x];
 					}
-
-					//Прибавляем p_x в любом случае, так как все, что дальше, является пистолетом
-					p_x++;
-				
-				//иначе просто добавляем в кадр фрагмент карты
+				//Отрисовываем стреляющий пистолет
 				} else {
-					frame += map_grid[y][x];
+					//проверяем, должны ли мы нарисовать пистолет: есть ли по pistol_start_x/y пистолет, не вылез ли он за свой размер/размер экрана
+					if (y >= pistol.pistol_fire_start_y and x >= pistol.pistol_start_x
+						and p_x < min(pistol.pistol_width, sw) and p_y < min(pistol.pistolfire_height, sh)) {
+						//Проверяем, не является ли символ пробелом. Если нет, то в кадр добавляем часть пистолета, иначе - карту
+						if (pistol.pistol_fire_body[p_y][p_x] != ' ') {
+							if (pistol.pistol_fire_body[p_y][p_x] == '0') {
+								frame += SetColor(game::YELLOW) + rectangles[0] + ResetColor();
+							} else {
+								frame += pistol.pistol_fire_body[p_y][p_x];
+							}
+				
+							met_pistol_parts = true;
+							//закрашиваем внутренность пистолета
+						} else if (met_pistol_parts and p_x < pistol.pistol_fire_last_symbol[p_y]) {
+							frame += SetColor(game::BLACK) + rectangles[2] + ResetColor();
+						} //Иначе добавляем часть карты, чтобы пистолет был прозрачным
+						else {
+							frame += map_grid[y][x];
+						}
+
+						//Прибавляем p_x в любом случае, так как все, что дальше, является пистолетом
+						p_x++;
+
+						//иначе просто добавляем в кадр фрагмент карты
+					} else {
+						frame += map_grid[y][x];
+					}
 				}
+				
 			}
 
-			if (y >= pistol.pistol_start_y) {
+			if (y >= pistol.pistol_start_y and !pistol.shooting) {
+				p_y++;
+				p_x = 0;
+				met_pistol_parts = false;
+			} else if (y >= pistol.pistol_fire_start_y and pistol.shooting) {
 				p_y++;
 				p_x = 0;
 				met_pistol_parts = false;
