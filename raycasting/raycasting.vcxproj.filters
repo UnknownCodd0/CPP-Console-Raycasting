@@ -31,5 +31,8 @@
     <Text Include="gun.txt">
       <Filter>Файлы ресурсов</Filter>
     </Text>
+    <Text Include="losetext.txt">
+      <Filter>Файлы ресурсов</Filter>
+    </Text>
   </ItemGroup>
 </Project>

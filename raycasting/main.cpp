@@ -11,6 +11,8 @@
 #include <Windows.h>
 #include <fstream>
 #include <cassert>
+#include <thread>
+#include <utility>
 
 
 //свои заголовочные файлы
@@ -72,26 +74,50 @@ const int sw = WIDTH / scale, sh = HEIGHT / scale;
 //Количество живых врагов
 int enemys_left = 5;
 
-//Coordinates move from: 0, 0 - top left corner; 5, 5 - downmost right corner.
-//0 - пусто, 1 - стена, 2 - враг
-string map[MAP_SIZE] = {
+//Карта в начале игры
+const string start_map[MAP_SIZE] = {
 	"11111111111111111111",
-	"10000000200000000021",
+	"10000000000000000001",
 	"10000001011101111111",
 	"10000001011101111111",
 	"10000011011100000001",
-	"10112011000000000001",
+	"10110011000000000001",
 	"10110000000000000001",
 	"10010000011101101101",
 	"10000000011111101101",
 	"10111111011100000101",
 	"10000111011100010101",
-	"10010001100021001101",
+	"10010001100001001101",
 	"10000011100001101101",
 	"10110000000000101101",
 	"10110111111111101101",
 	"10000000000000001101",
-	"10000000020000001101",
+	"10000000000000001101",
+	"10000000000111111101",
+	"11111111111111111101",
+	"11111111111111111101"
+};
+
+//Coordinates move from: 0, 0 - top left corner; 5, 5 - downmost right corner.
+//0 - пусто, 1 - стена, 2 - враг
+string map[MAP_SIZE] = {
+	"11111111111111111111",
+	"10000000000000000001",
+	"10000001011101111111",
+	"10000001011101111111",
+	"10000011011100000001",
+	"10110011000000000001",
+	"10110000000000000001",
+	"10010000011101101101",
+	"10000000011111101101",
+	"10111111011100000101",
+	"10000111011100010101",
+	"10010001100001001101",
+	"10000011100001101101",
+	"10110000000000101101",
+	"10110111111111101101",
+	"10000000000000001101",
+	"10000000000000001101",
 	"10000000000111111101",
 	"11111111111111111101",
 	"11111111111111111101"
@@ -100,8 +126,11 @@ string map[MAP_SIZE] = {
 //Звуки. Частота звуков
 const DWORD sound_footstep = 100;
 const DWORD sound_shoot = 80;
+const DWORD notifcation_exit = 1000;
+
 const int sound_length_step = 10;
 const int sound_length_shoot = 200;
+const int sound_length_notifcation = 100;
 
 
 //!!!!!!!!!!!!!!!УТИЛИТНЫЕ ФУНКЦИИ & КЛАССЫ
@@ -131,6 +160,12 @@ double dist(game::Vector2 p1, game::Vector2 p2) {
 	return sqrt((p2.x - p1.x) * (p2.x - p1.x) + (p2.y - p1.y) * (p2.y - p1.y));
 }
 
+//Асинхронный Beep
+void AsyncBeep(DWORD freq, int duration) {
+	std::thread([freq, duration]() {
+		Beep(freq, duration);
+	}).detach();
+}
 
 
 //!!!!!!!!!!!ОСНОВНАЯ ЛОГИКА
@@ -421,14 +456,14 @@ public:
 
 	//Функция, реализующая выстрел пистолета
 	//Напрямую изменяет карту, если мы попали
-	void shoot(game::Player player) {
+	void shoot(game::Player player, vector<game::Enemy> &enemys) {
 		//Если пистолет не перезарядился, то он не стреляет
 		if (current_cd > 0) {
 			return;
 		}
 
 		//Включаем звук выстрела
-		Beep(sound_shoot, sound_length_shoot);
+		AsyncBeep(sound_shoot, sound_length_shoot);
 
 		//Обновляем перезарядку
 		current_cd = COOLDOWN_TIME;
@@ -446,6 +481,25 @@ public:
 		if (result.type == 2) {
 			map[result.intersection_y][result.intersection_x] = '0';
 			enemys_left--;
+
+			if (enemys_left == 0) {
+				AsyncBeep(notifcation_exit, sound_length_notifcation);
+			}
+
+			//Удаляем врага из списка
+			for (game::Enemy en : enemys) {
+				if (en.x == result.intersection_x and en.y == result.intersection_y) {
+					for (int i = 0; i < enemys.size(); i++) {
+						if (enemys[i].id == en.id) {
+							enemys.erase(enemys.begin() + i);
+
+
+							break;
+						}
+					}
+					break;
+				}
+			}
 		}
 
 		return;
@@ -517,6 +571,8 @@ vector <game::RayResult> cast_rays(game::Player player) {
 	return ans;
 }
 
+
+
 //Функиця скоростного очищения экрана
 void set_cursor(int x, int y) {
 	COORD coord = { (SHORT)x, (SHORT)y };
@@ -542,7 +598,7 @@ int main() {
 	//1.1 чтобы игрок не спавнился в стене
 	game::Player player{ 1.1, 1.1, start_angle };
 	const double speed = 1.2;
-	const double rot_speed = 45;
+	const double rot_speed = 55;
 	const double player_size = EPS;
 
 	auto current_time = chrono::steady_clock::now();
@@ -563,7 +619,18 @@ int main() {
 	double current_step_cooldown = 0;
 
 	//инициализация врагов
-	game::Enemy enemy1{1, 18};
+	game::Enemy enemy1(18, 1, 0, 1);
+	game::Enemy enemy2(8, 1, 1, 0.5);
+	game::Enemy enemy3(4, 5, 2, 0.7);
+	game::Enemy enemy4(12, 11, 3, 0.2);
+	game::Enemy enemy5(9, 16, 4, 0);
+
+	//Список всех живых на данный момент врагов. При смерти врага он будет удален из списка в классе Pistol
+	vector<game::Enemy> enemys = {enemy1, enemy2, enemy3, enemy4, enemy5};
+
+	//Означает, выиграл ли игрок или проиграл
+	bool won = true;
+
 
 	//Основной цикл игры (mainloop)
 	while (true) {
@@ -588,8 +655,40 @@ int main() {
 		//Перезаряжаем пистолет каждый кадр
 		pistol.reload(delta_time);
 
+		//"Перезаряжаем" время между шагами игрока
 		if (current_step_cooldown > 0) {
 			current_step_cooldown -= delta_time;
+		}
+
+		//Добавляем на карту врагов, чтобы при рассчетах они не врезались друг в друга
+		for (game::Enemy enemy : enemys) {
+			map[enemy.y][enemy.x] = '2';
+		}
+
+		//Позволяем врагам делать ходы и попутно рассчитываем расстояние
+		for (game::Enemy& enemy : enemys) {
+			enemy.move_cooldown -= delta_time;
+
+			if (enemy.move_cooldown < 0) {
+				int prev_x = enemy.x, prev_y = enemy.y;
+				enemy.follow_player(player, MAP_SIZE, map);
+
+				map[prev_y][prev_x] = '0';
+			}
+		}
+
+		//Обнуляем карту и показываем врагов на новых координатах
+		copy(start_map->begin(), start_map->end(), map->begin());
+
+		for (game::Enemy enemy : enemys) {
+			map[enemy.y][enemy.x] = '2';
+		}
+
+		//Проверяем, не попал ли враг на блок игрока?
+		if (map[(int) player.y][(int) player.x] == '2') {
+			//Если попал, то игрок проиграл
+			won = false;
+			break;
 		}
 
 
@@ -597,7 +696,7 @@ int main() {
 		if (GetAsyncKeyState('W') & 0x8000) {
 			//Издаем звук каждую секунду
 			if (current_step_cooldown <= 0) {
-				Beep(sound_footstep, sound_length_step);
+				AsyncBeep(sound_footstep, sound_length_step);
 				current_step_cooldown = STEP_COOLDOWN;
 			}
 
@@ -623,7 +722,7 @@ int main() {
 		if (GetAsyncKeyState('S') & 0x8000) {
 			//Издаем звук каждую секунду
 			if (current_step_cooldown <= 0) {
-				Beep(sound_footstep, sound_length_step);
+				AsyncBeep(sound_footstep, sound_length_step);
 				current_step_cooldown = STEP_COOLDOWN;
 			}
 
@@ -659,7 +758,7 @@ int main() {
 
 		//Проверка нажатия на пробел и выстрела пистолета
 		if (GetAsyncKeyState(VK_SPACE) & 0x8000) {
-			pistol.shoot(player);
+			pistol.shoot(player, enemys);
 		}
 		
 		//обновляем game::Vector2 позицию игрока
@@ -696,8 +795,6 @@ int main() {
 				
 			}
 		}
-
-
 
 		//Собираем все пиксели на экране (sw - ширина экрана в "пикселях")
 		for (int i = 0; i < sw; i++) {
@@ -835,13 +932,21 @@ int main() {
 		debug += " y: "; debug += to_string(player.y);
 		debug += " FPS: "; debug += to_string(FPS);
 		debug += " Enemys: "; debug += to_string(enemys_left);
+		if (enemys_left == 0) {
+			debug += ". Now find exit!";
+		}
+
+		//превращаем в int и прибавляем 0.9, так как вывод показывает 0, хотя например может быть 0.9, то есть ждать ещё почти секунду
+		debug += "\nPistol reload time: "; debug += to_string(max(0, (int) (pistol.current_cd+0.9)));
 
 		//добавляем ANSI-код удаления строки, а потом на чистую строку добавляем отладучную инфу
 		frame += L"\033[K";
 
 		//добавляем отладочную инфу
 		frame += wstring(debug.begin(), debug.end());
-		
+
+		//Обнуляем карту от врагов, так как вся логика закончилась
+		copy(start_map->begin(), start_map->end(), map->begin());
 
 		//выводим отрендеренный кадр
 		//логика вывода с WinAPI
@@ -872,24 +977,53 @@ int main() {
 		}
 	}
 
-	//считывание ASCII-рисунка победы
-	vector<string> win_text;
-	ifstream wtxt("wintext.txt");
-	string ws_read_wtxt;
+	//Если игрок победил, выводим ASCII-арт текст "YOU WIN!"
+	if (won) {
+		//считывание ASCII-рисунка победы
+		vector<string> win_text;
+		ifstream wtxt("wintext.txt");
+		string ws_read_wtxt;
 
-	while (getline(wtxt, ws_read_wtxt)) {
-		win_text.push_back(ws_read_wtxt);
+		while (getline(wtxt, ws_read_wtxt)) {
+			win_text.push_back(ws_read_wtxt);
+		}
+
+		//Вывод цветного текста "YOU WIN!"
+		this_thread::sleep_for(chrono::milliseconds(500));
+
+		//Очищаем экран, чтобы туда вывести текст
+		system("cls");
+
+		for (string wsa : win_text) {
+			wcout << SetColor(game::RED) + wstring(wsa.begin(), wsa.end()) + ResetColor() << endl;
+		}
+
+		//Задерживаем, чтобы консоль случайно не закрылась от случайного нажатия клавиши
+		this_thread::sleep_for(chrono::milliseconds(1000));
+
+	//Иначе выводим ASCII-арт "YOU LOSE!"
+	} else {
+		vector<string> lose_text;
+		ifstream ltxt("losetext.txt");
+		string ws_read_ltxt;
+
+		while (getline(ltxt, ws_read_ltxt)) {
+			lose_text.push_back(ws_read_ltxt);
+		}
+
+		this_thread::sleep_for(chrono::milliseconds(500));
+
+		//Очищаем экран, чтобы туда вывести текст
+		system("cls");
+
+		for (string wsa : lose_text) {
+			wcout << SetColor(game::RED) + wstring(wsa.begin(), wsa.end()) + ResetColor() << endl;
+		}
+
+		//Задерживаем, чтобы консоль случайно не закрылась от случайного нажатия клавиши
+		this_thread::sleep_for(chrono::milliseconds(1000));
 	}
-
-	//Вывод цветного текста "YOU WIN!"
-	this_thread::sleep_for(chrono::milliseconds(500));
-
-	//Очищаем экран, чтобы туда вывести текст
-	system("cls");
-
-	for (string wsa : win_text) {
-		wcout << SetColor(game::RED) + wstring(wsa.begin(), wsa.end()) + ResetColor() << endl;
-	}
+	
 
 	return 0;
 }
