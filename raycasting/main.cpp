@@ -14,6 +14,7 @@
 #include <thread>
 #include <utility>
 #include <locale>
+#include <random>
 
 
 //свои заголовочные файлы
@@ -73,7 +74,7 @@ const int scale = 8;
 const int sw = WIDTH / scale, sh = HEIGHT / scale;
 
 //Количество живых врагов
-int enemys_left = 5;
+int enemys_left = 0;
 
 //Карта в начале игры
 const string start_map[MAP_SIZE] = {
@@ -617,6 +618,8 @@ void set_cursor(int x, int y) {
 
 
 int main() {
+	srand(time(NULL));
+
 	//РЕНДЕРИНГ && ДВИЖЕНИЕ
 	//Оптимизация вывода
 	cin.tie(nullptr);
@@ -634,7 +637,7 @@ int main() {
 	//1.1 чтобы игрок не спавнился в стене
 	game::Player player{ 1.1, 1.1, start_angle };
 	const double speed = 1.2;
-	const double rot_speed = 55;
+	const double rot_speed = 60;
 	const double player_size = EPS;
 
 	auto current_time = chrono::steady_clock::now();
@@ -654,15 +657,63 @@ int main() {
 	const double STEP_COOLDOWN = 0.7;
 	double current_step_cooldown = 0;
 
-	//инициализация врагов
+	//инициализация врагов. 9 врагов. 5 из них рандомно попадут в игру
 	game::Enemy enemy1(18, 1, 0, 1);
 	game::Enemy enemy2(8, 1, 1, 0.5);
 	game::Enemy enemy3(4, 5, 2, 0.7);
 	game::Enemy enemy4(12, 11, 3, 0.2);
 	game::Enemy enemy5(9, 16, 4, 0);
+	game::Enemy enemy6(1, 10, 5, 0.9);
+	game::Enemy enemy7(14, 5, 6, 0.3);
+	game::Enemy enemy8(18, 18, 7, 1);
+	game::Enemy enemy9(13 ,13, 8, 0.1);
+
+	vector<game::Enemy> all_enemys = {enemy1, enemy2, enemy3, enemy4, enemy5, enemy6, enemy7, enemy8, enemy9};
 
 	//Список всех живых на данный момент врагов. При смерти врага он будет удален из списка в классе Pistol
-	vector<game::Enemy> enemys = {enemy1, enemy2, enemy3, enemy4, enemy5};
+	vector<game::Enemy> enemys; //= {enemy1, enemy2, enemy3, enemy4, enemy5};
+
+	//Собираем список всех врагов при помощи рандома
+	while (enemys.size() < enemys_left) {
+		int random_enemy = rand() % 9;
+		game::Enemy enemy_to_add;
+
+		bool chosen_first = false;
+
+		//Проверяем, не выбрали ли мы этого врага. Если нет, то берем и удаляем из списка доступных.
+		for (int i = 0; i < all_enemys.size(); i++) {
+			if (random_enemy == all_enemys[i].id) {
+				enemy_to_add = all_enemys[i];
+				all_enemys.erase(all_enemys.begin() + i);
+				chosen_first = true;
+				break;
+			}
+		}
+
+		//Если уже выбрали, то добавляем, и будем пытаться добавить заново в следующем проходе
+		if (chosen_first) {
+			enemys.push_back(enemy_to_add);
+			continue;
+		}
+
+		bool cont = true;
+
+		//Если вдруг с первого раза не получилось выбрать уникального, то повторяем так, пока не выберем
+		while (cont) {
+			int random_enemy = rand() % 9;
+
+			for (int i = 0; i < all_enemys.size(); i++) {
+				if (random_enemy == all_enemys[i].id) {
+					enemy_to_add = all_enemys[i];
+					all_enemys.erase(all_enemys.begin() + i);
+					cont = false;
+					break;
+				}
+			}
+		}
+
+		enemys.push_back(enemy_to_add);
+	}
 
 	//Означает, выиграл ли игрок или проиграл
 	bool won = true;
@@ -935,13 +986,14 @@ int main() {
 					}
 				//Отрисовываем стреляющий пистолет
 				} else {
-					//проверяем, должны ли мы нарисовать пистолет: есть ли по pistol_start_x/y пистолет, не вылез ли он за свой размер/размер экрана
+					//Та же логика. Но высота двух пистолей разная, ширина - та же
 					if (y >= pistol.pistol_fire_start_y and x >= pistol.pistol_start_x
 						and p_x < min(pistol.pistol_width, sw) and p_y < min(pistol.pistolfire_height, sh)) {
-						//Проверяем, не является ли символ пробелом. Если нет, то в кадр добавляем часть пистолета, иначе - карту
 						if (pistol.pistol_fire_body[p_y][p_x] != ' ') {
+							//Рисуем эффект выстрела, если ноль
 							if (pistol.pistol_fire_body[p_y][p_x] == '0') {
 								frame += SetColor(game::YELLOW) + rectangles[0] + ResetColor();
+							//Иначе рисуем сам пистолет
 							} else {
 								frame += pistol.pistol_fire_body[p_y][p_x];
 							}
@@ -966,6 +1018,7 @@ int main() {
 				
 			}
 
+			//Проверяем две начальные точки для стреляющего и нестреляющего пистолета
 			if (y >= pistol.pistol_start_y and !pistol.shooting) {
 				p_y++;
 				p_x = 0;

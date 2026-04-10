@@ -53,6 +53,10 @@ namespace game {
 		//Сколько осталось до следующего хода
 		double move_cooldown;
 
+		Enemy() {
+
+		}
+
 		Enemy(int x, int y, int id, double move_cooldown) {
 			this->x = x;
 			this->y = y;
