@@ -235,6 +235,7 @@
     <Text Include="gun.txt" />
     <Text Include="gun_fire.txt" />
     <Text Include="losetext.txt" />
+    <Text Include="wall_texture.txt" />
     <Text Include="wintext.txt" />
   </ItemGroup>
   <ItemGroup>

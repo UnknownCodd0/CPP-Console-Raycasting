@@ -37,5 +37,8 @@
     <Text Include="gun_fire.txt">
       <Filter>Файлы ресурсов</Filter>
     </Text>
+    <Text Include="wall_texture.txt">
+      <Filter>Файлы ресурсов</Filter>
+    </Text>
   </ItemGroup>
 </Project>

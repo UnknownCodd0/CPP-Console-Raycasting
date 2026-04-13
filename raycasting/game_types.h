@@ -37,6 +37,8 @@ namespace game {
 		//0 - nothing, 1 - wall, 2 - enemy
 		int type;
 		int intersection_x, intersection_y;
+		bool was_vertical;
+		double d_ix, d_iy;
 	};
 
 	class Enemy {

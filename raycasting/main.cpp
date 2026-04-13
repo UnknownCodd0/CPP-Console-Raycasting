@@ -15,6 +15,7 @@
 #include <utility>
 #include <locale>
 #include <random>
+#include <sstream>
 
 
 //свои заголовочные файлы
@@ -69,12 +70,12 @@ const int FPS_CAP = 120;
 const double TARGET_FRAME_TIME = 1.0 / FPS_CAP;
 
 //scale - масштаб
-const int scale = 8;
+const int scale = 7;
 //sw и sh - масштабированные ширина и высота
 const int sw = WIDTH / scale, sh = HEIGHT / scale;
 
 //Количество живых врагов
-int enemys_left = 0;
+int enemys_left = 8;
 
 //Карта в начале игры
 const string start_map[MAP_SIZE] = {
@@ -295,7 +296,7 @@ game::RayResult dda(game::Player player) {
 	if (closest_vy < MAP_SIZE and closest_vx < MAP_SIZE and closest_vy >= 0 and closest_vx >= 0 and map[closest_vy][closest_vx] - '0') {
 		vert_intersection = true;
 		vertical_distance = dist(closest_v, player.pos);
-		vray = { vertical_distance, map[closest_vy][closest_vx] - '0', closest_vx, closest_vy};
+		vray = { vertical_distance, map[closest_vy][closest_vx] - '0', closest_vx, closest_vy, true, closest_v.x, closest_v.y};
 	//if we couldn't find, then we look through the map
 	} else {
 		//текущая точка
@@ -311,7 +312,7 @@ game::RayResult dda(game::Player player) {
 			if (map[map_y][map_x] - '0') {
 				vert_intersection = true;
 				vertical_distance = dist(current_point, player.pos);
-				vray = {vertical_distance, map[map_y][map_x] - '0', map_x, map_y};
+				vray = {vertical_distance, map[map_y][map_x] - '0', map_x, map_y, true, current_point.x, current_point.y};
 				break;
 			}
 
@@ -354,7 +355,7 @@ game::RayResult dda(game::Player player) {
 	if (closest_hy < MAP_SIZE and closest_hx < MAP_SIZE and closest_hy >= 0 and closest_hx >= 0 and map[closest_hy][closest_hx] - '0') {
 		hor_intersection = true;
 		horizontal_distance = dist(player.pos, closest_h);
-		hray = { horizontal_distance, map[closest_hy][closest_hx] - '0', closest_hx, closest_hy};
+		hray = { horizontal_distance, map[closest_hy][closest_hx] - '0', closest_hx, closest_hy, false, closest_h.x, closest_h.y};
 	} else {
 		game::Vector2 current_point = closest_h;
 
@@ -366,7 +367,7 @@ game::RayResult dda(game::Player player) {
 				hor_intersection = true;
 				horizontal_distance = dist(current_point, player.pos);
 
-				hray = {horizontal_distance, map[map_y][map_x] - '0', map_x, map_y};
+				hray = {horizontal_distance, map[map_y][map_x] - '0', map_x, map_y, false, current_point.x, current_point.y};
 
 				break;
 			}
@@ -599,7 +600,7 @@ vector <game::RayResult> cast_rays(game::Player player) {
 		//умножаем на косинус, чтобы избежать "рыбьего глаза", то есть разного расстояние до одной и той же стены
 		double final_dist = euclidean_dist * cos(to_rad(legacy_player) - to_rad(player.angle));
 
-		ans.push_back({ final_dist, current_intersection.type });
+		ans.push_back({final_dist, current_intersection.type, current_intersection.intersection_x, current_intersection.intersection_y, current_intersection.was_vertical, current_intersection.d_ix, current_intersection.d_iy});
 
 		//двигаем игрока
 		player.angle += step;
@@ -672,6 +673,44 @@ int main() {
 
 	//Список всех живых на данный момент врагов. При смерти врага он будет удален из списка в классе Pistol
 	vector<game::Enemy> enemys; //= {enemy1, enemy2, enemy3, enemy4, enemy5};
+
+	//Инициализируем логику текстур стен
+	//Открываем файл с текстурой стены
+	ifstream wall_texture_file("wall_texture.txt");
+
+	//Вектор изначального представления текстуры
+	vector<vector<game::Color>> wall_textures;
+	string line_wall_file;
+
+	while (getline(wall_texture_file, line_wall_file)) {
+		//Разделяем все отдельные слова
+		stringstream extractable_row(line_wall_file);
+		string temporary;
+		vector<game::Color> temp_vec;
+
+		//Читаем все слова из текущей строки
+
+		while (extractable_row >> temporary) {
+			game::Color color_to_add;
+
+			if (temporary == "GREEN") {
+				color_to_add = game::GREEN;
+			} else {
+				color_to_add = game::WHITE;
+			}
+
+			temp_vec.push_back(color_to_add);
+		}
+
+		wall_textures.push_back(temp_vec);
+	}
+
+	wall_texture_file.close();
+
+	//Константые размеры текстур в длину/ширину
+	const int texture_hor = wall_textures[0].size();
+	const int texture_vert = wall_textures.size();
+	
 
 	//Собираем список всех врагов при помощи рандома
 	while (enemys.size() < enemys_left) {
@@ -913,26 +952,66 @@ int main() {
 			int s_upwall = upper_wall / scale;
 			int s_lowall = lower_wall / scale;
 
+			//Логика с текстурированием. Так как DDA всегда находит целочисленные координаты пересечения либо по X, либо по Y,
+			//Мы ориентируемся по нецелой координате, и именно она показывает в какую часть стены по процентам мы попали
+			double hit_coord;
+
+			//Если луч попал по вертикальной клетке, то значит, что X - целое, а Y - дробное
+			if (distances[i].was_vertical) {
+				//Мы берем именно дробную версию Y, чтобы дальше рассчитать по формуле
+				hit_coord = distances[i].d_iy;
+			} else {
+				// Если в горизонтальную — вдоль оси X
+				hit_coord = distances[i].d_ix;
+			}
+
+			//Начало так называемого UV-маппинга. U - это полоска, по которой попал луч. fmod находит остаток. например,
+			//fmod(5.5, 1) = 0.5, т.е мы попали в 50% стены (середину). Это позволяет наложить текстуры на сам объект,
+			//А не на его представление в экране
+			double U = fmod(hit_coord, 1.0);
+
+			//Координата текстуры, из которой берем пиксель. Умножаем общую ширину текстуры на относительную координату
+			//попадания
+			int tex_x = (int)(U * texture_hor);
+
 			//чем дальше стена (т.е больше d), тем бледнее символ
 			//проходимся от самого верха рассчитанной стены до самого низа
 			//в map_grid[y][i] хранится wstring, состоящий из: ANSI-префикс цвета, отрендеренный символ, ANSI-суффикс цвета
+			//На самом деле это координата Z, т.е. высоты
 			for (int y = s_upwall; y < s_lowall; y++) {
+				//V мы пересчитываем в цикле, так как у всех стен равная высота, и чтобы проецировать реальные 3D-лучи,
+				//Мы должны пройтись по всей высоте проецируемой стены
+
+				//Немного другая логика: мы делим то, насколько далеко ушли от начала по y (y - s_upwall) на
+				//Общую высоту стены (lowall - upwall)
+				double V = (double)(y - s_upwall) / (double)(s_lowall - s_upwall);
+
+				//Находим ту же координату по y
+				int tex_y = (int)(V * texture_vert);
+
+				//Проверяем, не вылетели ли мы за границы текстуры: не стало ли меньше нуля или больше размера текстуры
+				tex_y = max(0, min(texture_vert, tex_y));
+				tex_x = max(0, min(texture_hor, tex_x));
+
+				//Проверяем, не вылетел ли y за границы
 				if (y >= 0 and y < sh) {
+					//Если враг, то рисуем красным цветом вне зависимости от расстояния
 					if (collision_type == 2) {
 						map_grid[y][i] = SetColor(game::RED) + rectangles[0] + ResetColor();
+					//Если стена, то отрисовываем текстурами в зависимости от расстояния
 					} else {
+						//Берём цвет из текстуры по вычисленным координатам
 						if (d <= 1) {
-							map_grid[y][i] = SetColor(game::GREEN) + rectangles[0] + ResetColor();
+							map_grid[y][i] = SetColor(wall_textures[tex_y][tex_x]) + rectangles[0] + ResetColor();
 						} else if (d > 1 and d <= 2) {
-							map_grid[y][i] = SetColor(game::GREEN) + rectangles[1] + ResetColor();
+							map_grid[y][i] = SetColor(wall_textures[tex_y][tex_x]) + rectangles[1] + ResetColor();
 						} else if (d > 2 and d <= 3) {
-							map_grid[y][i] = SetColor(game::GREEN) + rectangles[2] + ResetColor();
+							map_grid[y][i] = SetColor(wall_textures[tex_y][tex_x]) + rectangles[2] + ResetColor();
 						} else if (d < MAX_DIST) {
-							map_grid[y][i] = SetColor(game::GREEN) + rectangles[3] + ResetColor();
+							map_grid[y][i] = SetColor(wall_textures[tex_y][tex_x]) + rectangles[3] + ResetColor();
 						}
 					}
 				}
-				
 			}
 		}
 
@@ -959,8 +1038,10 @@ int main() {
 		bool met_pistol_parts = false;
 
 		//сбор основного кадра + мини-карты справа
+		//sh и sw - это наше разрешение, которое должно быть заполнено на 100%
 		for (int y = 0; y < sh; y++) {
 			for (int x = 0; x < sw; x++) {
+				//Логика для не стреляющего пистолета
 				if (!pistol.shooting) {
 					//проверяем, должны ли мы нарисовать пистолет: есть ли по pistol_start_x/y пистолет, не вылез ли он за свой размер/размер экрана
 					if (y >= pistol.pistol_start_y and x >= pistol.pistol_start_x
@@ -969,10 +1050,10 @@ int main() {
 						if (pistol.pistol_body[p_y][p_x] != ' ') {
 							frame += pistol.pistol_body[p_y][p_x];
 							met_pistol_parts = true;
-							//закрашиваем внутренность пистолета
+						//закрашиваем внутренность пистолета, если мы встречали символы-не-пробелы, т.е. мы в середине пистолета, где пробелы означают заливку
 						} else if (met_pistol_parts and p_x < pistol.pistol_last_symbol[p_y]) {
 							frame += SetColor(game::BLACK) + rectangles[2] + ResetColor();
-						} //Иначе добавляем часть карты, чтобы пистолет был прозрачным
+						} //Иначе добавляем часть карты, так как мы закрасили всё, что нужно, а дальше идут выравнивательные пробелы
 						else {
 							frame += map_grid[y][x];
 						}
