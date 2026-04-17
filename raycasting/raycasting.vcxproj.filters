@@ -23,6 +23,9 @@
     <ClInclude Include="game_types.h">
       <Filter>Файлы заголовков</Filter>
     </ClInclude>
+    <ClInclude Include="welcome_output.h">
+      <Filter>Файлы заголовков</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <Text Include="wintext.txt">

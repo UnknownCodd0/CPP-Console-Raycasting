@@ -21,6 +21,7 @@
 //свои заголовочные файлы
 //файл игровых типов (game::Color, game::Player, game::Vector2)
 #include "game_types.h"
+#include "welcome_output.h"
 
 
 /*#define and &&
@@ -69,13 +70,16 @@ const int MAX_DIST = 6;
 const int FPS_CAP = 120;
 const double TARGET_FRAME_TIME = 1.0 / FPS_CAP;
 
-//scale - масштаб
-const int scale = 7;
-//sw и sh - масштабированные ширина и высота
-const int sw = WIDTH / scale, sh = HEIGHT / scale;
+//scale - масштаб. Должно изменяться ТОЛЬКО и ТОЛЬКО в main() при начальном экране при конфигурации игроком
+int scale = 7;
+//sw и sh - масштабированные ширина и высота. Должны быть пересчитаны в main при изменении scale
+int sw = WIDTH / scale, sh = HEIGHT / scale;
 
 //Количество живых врагов
 int enemys_left = 8;
+
+//Отладочная переменная. Если true, то играется начальный экран, иначе нет. По умолчанию должно стоять true
+const bool play_intro = false;
 
 //Карта в начале игры
 const string start_map[MAP_SIZE] = {
@@ -103,7 +107,7 @@ const string start_map[MAP_SIZE] = {
 
 //Coordinates move from: 0, 0 - top left corner; 5, 5 - downmost right corner.
 //0 - пусто, 1 - стена, 2 - враг
-string map[MAP_SIZE] = {
+string game_map[MAP_SIZE] = {
 	"11111111111111111111",
 	"10000000000000000001",
 	"10000001011101111111",
@@ -293,10 +297,10 @@ game::RayResult dda(game::Player player) {
 
 	//the closest_vy and vx checks are because sometimes the ray might travel past walls
 	//here we check if the closest integer tile for a wall
-	if (closest_vy < MAP_SIZE and closest_vx < MAP_SIZE and closest_vy >= 0 and closest_vx >= 0 and map[closest_vy][closest_vx] - '0') {
+	if (closest_vy < MAP_SIZE and closest_vx < MAP_SIZE and closest_vy >= 0 and closest_vx >= 0 and game_map[closest_vy][closest_vx] - '0') {
 		vert_intersection = true;
 		vertical_distance = dist(closest_v, player.pos);
-		vray = { vertical_distance, map[closest_vy][closest_vx] - '0', closest_vx, closest_vy, true, closest_v.x, closest_v.y};
+		vray = { vertical_distance, game_map[closest_vy][closest_vx] - '0', closest_vx, closest_vy, true, closest_v.x, closest_v.y};
 	//if we couldn't find, then we look through the map
 	} else {
 		//текущая точка
@@ -309,10 +313,10 @@ game::RayResult dda(game::Player player) {
 
 		while (map_x < MAP_SIZE and map_y < MAP_SIZE and map_x >= 0 and map_y >= 0 and dist(current_point, player.pos) <= MAX_DIST) {
 			//если мы врезались в какой-то объект (>0)
-			if (map[map_y][map_x] - '0') {
+			if (game_map[map_y][map_x] - '0') {
 				vert_intersection = true;
 				vertical_distance = dist(current_point, player.pos);
-				vray = {vertical_distance, map[map_y][map_x] - '0', map_x, map_y, true, current_point.x, current_point.y};
+				vray = {vertical_distance, game_map[map_y][map_x] - '0', map_x, map_y, true, current_point.x, current_point.y};
 				break;
 			}
 
@@ -352,10 +356,10 @@ game::RayResult dda(game::Player player) {
 
 	game::Vector2 closest_h{ player.x + hxn, player.y + hyn};
 
-	if (closest_hy < MAP_SIZE and closest_hx < MAP_SIZE and closest_hy >= 0 and closest_hx >= 0 and map[closest_hy][closest_hx] - '0') {
+	if (closest_hy < MAP_SIZE and closest_hx < MAP_SIZE and closest_hy >= 0 and closest_hx >= 0 and game_map[closest_hy][closest_hx] - '0') {
 		hor_intersection = true;
 		horizontal_distance = dist(player.pos, closest_h);
-		hray = { horizontal_distance, map[closest_hy][closest_hx] - '0', closest_hx, closest_hy, false, closest_h.x, closest_h.y};
+		hray = { horizontal_distance, game_map[closest_hy][closest_hx] - '0', closest_hx, closest_hy, false, closest_h.x, closest_h.y};
 	} else {
 		game::Vector2 current_point = closest_h;
 
@@ -363,11 +367,11 @@ game::RayResult dda(game::Player player) {
 		int map_y = (int)(current_point.y + (looks_up ? -EPS : 0));
 
 		while (map_x < MAP_SIZE and map_y < MAP_SIZE and map_x >= 0 and map_y >= 0 and dist(current_point, player.pos) <= MAX_DIST) {
-			if (map[map_y][map_x] - '0') {
+			if (game_map[map_y][map_x] - '0') {
 				hor_intersection = true;
 				horizontal_distance = dist(current_point, player.pos);
 
-				hray = {horizontal_distance, map[map_y][map_x] - '0', map_x, map_y, false, current_point.x, current_point.y};
+				hray = {horizontal_distance, game_map[map_y][map_x] - '0', map_x, map_y, false, current_point.x, current_point.y};
 
 				break;
 			}
@@ -517,7 +521,7 @@ public:
 
 		//Проверяем, попали ли мы по врагу
 		if (result.type == 2) {
-			map[result.intersection_y][result.intersection_x] = '0';
+			game_map[result.intersection_y][result.intersection_x] = '0';
 			enemys_left--;
 
 			if (enemys_left == 0) {
@@ -526,11 +530,13 @@ public:
 
 			//Удаляем врага из списка
 			for (game::Enemy en : enemys) {
+				//Проверяем, попали ли мы по итерируемому врагу
 				if (en.x == result.intersection_x and en.y == result.intersection_y) {
+					//Тогда мы уже проходим переменной i, и если враг совпал с итерируемым сверху врагом, значит этот враг сидит на
+					//Позиции i в списке врагов, и тогда мы его удаляем по итератору begin() + i
 					for (int i = 0; i < enemys.size(); i++) {
 						if (enemys[i].id == en.id) {
 							enemys.erase(enemys.begin() + i);
-
 
 							break;
 						}
@@ -543,6 +549,7 @@ public:
 		return;
 	}
 
+	//Перезарядка пистолета после выстрела. Вызывается каждый кадр, реальная перезарядка идет только если она не закончилась, т.е. больше нуля
 	void reload(double deltaTime) {
 		if (current_cd > 0) {
 			current_cd -= deltaTime;
@@ -618,7 +625,103 @@ void set_cursor(int x, int y) {
 }
 
 
+//Функция отвечает за вывод начального экрана и интерактива с ним. Также устанавливает размер экрана и количество врагов
+void start_menu() {
+	if (play_intro) {
+		DWORD written = 0;
+		HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
+
+		while (true) {
+			WriteConsoleA(hConsole, start_controls_welcome.c_str(), start_controls_welcome.size(), &written, NULL);
+			set_cursor(0, 0);
+
+			if (GetAsyncKeyState(VK_RETURN) & 0x8000) {
+				system("cls");
+				break;
+			}
+		}
+
+		this_thread::sleep_for(chrono::milliseconds(100));
+		string current_choose_string = difficulty_easy;
+
+		while (true) {
+			WriteConsoleA(hConsole, current_choose_string.c_str(), current_choose_string.size(), &written, NULL);
+
+			set_cursor(0, 0);
+
+			if (GetAsyncKeyState(VK_DOWN) & 0x8000) {
+				if (current_choose_string == difficulty_easy) {
+					current_choose_string = difficulty_medium;
+					system("cls");
+				} else if (current_choose_string == difficulty_medium) {
+					current_choose_string = difficulty_hard;
+					system("cls");
+				}
+			}
+
+			if (GetAsyncKeyState(VK_UP) & 0x8000) {
+				if (current_choose_string == difficulty_hard) {
+					current_choose_string = difficulty_medium;
+					system("cls");
+				} else if (current_choose_string == difficulty_medium) {
+					current_choose_string = difficulty_easy;
+					system("cls");
+				}
+			}
+
+			if (GetAsyncKeyState(VK_RETURN) & 0x8000) {
+				system("cls");
+				break;
+			}
+		}
+
+		enemys_left = configuration_table.at(current_choose_string);
+
+		this_thread::sleep_for(chrono::milliseconds(100));
+		current_choose_string = resolution_low;
+
+		while (true) {
+			WriteConsoleA(hConsole, current_choose_string.c_str(), current_choose_string.size(), &written, NULL);
+
+			set_cursor(0, 0);
+
+			if (GetAsyncKeyState(VK_DOWN) & 0x8000) {
+				if (current_choose_string == resolution_low) {
+					current_choose_string = resolution_normal;
+					system("cls");
+				} else if (current_choose_string == resolution_normal) {
+					current_choose_string = resolution_high;
+					system("cls");
+				}
+			}
+
+			if (GetAsyncKeyState(VK_UP) & 0x8000) {
+				if (current_choose_string == resolution_high) {
+					current_choose_string = resolution_normal;
+					system("cls");
+				} else if (current_choose_string == resolution_normal) {
+					current_choose_string = resolution_low;
+					system("cls");
+				}
+			}
+
+			if (GetAsyncKeyState(VK_RETURN) & 0x8000) {
+				system("cls");
+				break;
+			}
+		}
+
+		scale = configuration_table.at(current_choose_string);
+		sh = HEIGHT / scale;
+		sw = WIDTH / scale;
+	}
+}
+
+
 int main() {
+	start_menu();
+
+	
 	srand(time(NULL));
 
 	//РЕНДЕРИНГ && ДВИЖЕНИЕ
@@ -799,7 +902,7 @@ int main() {
 
 		//Добавляем на карту врагов, чтобы при рассчетах они не врезались друг в друга
 		for (game::Enemy enemy : enemys) {
-			map[enemy.y][enemy.x] = '2';
+			game_map[enemy.y][enemy.x] = '2';
 		}
 
 		//Позволяем врагам делать ходы и попутно рассчитываем расстояние
@@ -808,21 +911,21 @@ int main() {
 
 			if (enemy.move_cooldown < 0) {
 				int prev_x = enemy.x, prev_y = enemy.y;
-				enemy.follow_player(player, MAP_SIZE, map);
+				enemy.follow_player(player, MAP_SIZE, game_map);
 
-				map[prev_y][prev_x] = '0';
+				game_map[prev_y][prev_x] = '0';
 			}
 		}
 
 		//Обнуляем карту и показываем врагов на новых координатах
-		copy(start_map->begin(), start_map->end(), map->begin());
+		copy(start_map->begin(), start_map->end(), game_map->begin());
 
 		for (game::Enemy enemy : enemys) {
-			map[enemy.y][enemy.x] = '2';
+			game_map[enemy.y][enemy.x] = '2';
 		}
 
 		//Проверяем, не попал ли враг на блок игрока?
-		if (map[(int) player.y][(int) player.x] == '2') {
+		if (game_map[(int) player.y][(int) player.x] == '2') {
 			//Если попал, то игрок проиграл
 			won = false;
 			break;
@@ -846,7 +949,7 @@ int main() {
 			next_y = (next_y + (sin(rad) > 0 ? player_size : -player_size));
 
 			// Простая проверка столкновений
-			if (next_x < MAP_SIZE and next_y < MAP_SIZE and map[(int)next_y][(int)next_x] == '0') {
+			if (next_x < MAP_SIZE and next_y < MAP_SIZE and game_map[(int)next_y][(int)next_x] == '0') {
 				//Откатываем изменения, чтобы игрок шел плавно
 				next_x = (next_x - (cos(rad) > 0 ? player_size : -player_size));
 				next_y = (next_y - (sin(rad) > 0 ? player_size : -player_size));
@@ -869,7 +972,7 @@ int main() {
 			next_x = (next_x + (cos(rad) > 0 ? -player_size : player_size));
 			next_y = (next_y + (sin(rad) > 0 ? -player_size : player_size));
 
-			if (next_x < MAP_SIZE and next_y < MAP_SIZE and map[(int)next_y][(int)next_x] == '0') {
+			if (next_x < MAP_SIZE and next_y < MAP_SIZE and game_map[(int)next_y][(int)next_x] == '0') {
 				next_x = (next_x - (cos(rad) > 0 ? -player_size : player_size));
 				next_y = (next_y - (sin(rad) > 0 ? -player_size : player_size));
 
@@ -915,9 +1018,12 @@ int main() {
 		//центр экрана
 		const int mid = HEIGHT / 2;
 
+		const int csh = sh;
+		const int csw = sw;
+
 		//отображаемая в консоли сетка
 		//"-" -пусто, "#" - стена
-		wstring map_grid[sh][sw];
+		vector<vector<wstring>> map_grid(sh, vector<wstring>(sw));//[csh][csw];
 
 		//заполняем небом и полом
 		for (int i = 0; i < sh; i++) {
@@ -1021,7 +1127,7 @@ int main() {
 		std::wstring minimap[MAP_SIZE];
 
 		for (int i = 0; i < MAP_SIZE; i++) {
-			for (char c : map[i]) {
+			for (char c : game_map[i]) {
 				minimap[i].push_back(c);
 			}
 		}
@@ -1030,6 +1136,7 @@ int main() {
 		minimap[(int)player.y][(int)player.x] = L'P';
 		//итератор по мини-карте
 		int ws_i = 0;
+		int ws_y = 0;
 
 		//итератор по пистолету. py и px - это относительные координаты относительно начала пистолета
 		int p_y = 0, p_x = 0;
@@ -1115,12 +1222,14 @@ int main() {
 			frame += L"\033[K";
 
 			//добавляем мини-карту справа
-			if (ws_i < MAP_SIZE) {
+			if (ws_y > 5 and ws_i < MAP_SIZE) {
 				//отступ
 				frame += L"                 ";
 				frame += minimap[ws_i];
 				ws_i++;
 			}
+
+			ws_y++;
 
 			frame += L'\n';
 		}
@@ -1163,7 +1272,7 @@ int main() {
 		frame += wstring(debug.begin(), debug.end());
 
 		//Обнуляем карту от врагов, так как вся логика закончилась
-		copy(start_map->begin(), start_map->end(), map->begin());
+		copy(start_map->begin(), start_map->end(), game_map->begin());
 
 		//выводим отрендеренный кадр
 		//логика вывода с WinAPI
@@ -1241,7 +1350,6 @@ int main() {
 		this_thread::sleep_for(chrono::milliseconds(1000));
 	}
 	
-
 	return 0;
 }
 
