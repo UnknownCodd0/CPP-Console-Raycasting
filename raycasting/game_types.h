@@ -41,6 +41,68 @@ namespace game {
 		double d_ix, d_iy;
 	};
 
+	struct Texture {
+		//Само представление текстуры как 2-мерный цветов
+		std::vector<std::vector<game::Color>> texture;
+
+		//Размеры текстуры. Константы!
+		int texture_hor;
+		int texture_vert;
+
+		Texture() {
+
+		}
+
+		Texture(std::string filename) {
+			//Инициализируем логику текстур стен
+			//Открываем файл с текстурой стены
+			std::ifstream wall_texture_file(filename);
+			std::string line_wall_file;
+
+			while (std::getline(wall_texture_file, line_wall_file)) {
+				//Разделяем все отдельные слова при помощи stringstream
+				std::stringstream extractable_row(line_wall_file);
+				//В это строку записывается текущий цвет из стрингстрем
+				std::string temporary;
+				//Временный вектор из всех текущих цветов в формате string temporary
+				std::vector<game::Color> temp_vec;
+
+				//Читаем все слова из текущей строки
+				while (extractable_row >> temporary) {
+					game::Color color_to_add;
+
+					if (temporary == "GREEN") {
+						color_to_add = game::GREEN;
+					} else if (temporary == "RED") {
+						color_to_add = game::RED;
+					} else if (temporary == "BLACK") {
+						color_to_add = game::BLACK;
+					} else if (temporary == "BLUE") {
+						color_to_add = game::BLUE;
+					} else if (temporary == "YELLOW") {
+						color_to_add = game::YELLOW;
+					} else if (temporary == "CYAN") {
+						color_to_add = game::CYAN;
+					} else if (temporary == "MAGENTA") {
+						color_to_add = game::MAGENTA;
+					} else {
+						color_to_add = game::WHITE;
+					}
+
+					temp_vec.push_back(color_to_add);
+				}
+
+				texture.push_back(temp_vec);
+			}
+
+			wall_texture_file.close();
+
+			//Все горизонтальные полоски изображения имеют равную длину. Длина горизонтальной полоски равна длине одного из векторов внутри вектора
+			texture_hor = texture[0].size();
+			texture_vert = texture.size();
+		}
+	};
+
 	class Enemy {
 	public:
 		int x, y;
@@ -55,16 +117,29 @@ namespace game {
 		//Сколько осталось до следующего хода
 		double move_cooldown;
 
+		//Текстура спрайта
+		Texture sprite;
+
 		Enemy() {
 
 		}
 
+		//TODO: УБРАТЬ!!!! ЭТО ЛЕГАСИ КОД
 		Enemy(int x, int y, int id, double move_cooldown) {
+			this->x = x;
+			this->y = y;
+			this->id = id;
+			this->pos = { x, y };
+			this->move_cooldown = move_cooldown;
+		}
+
+		Enemy(int x, int y, int id, double move_cooldown, std::string texture_name) {
 			this->x = x;
 			this->y = y;
 			this->id = id;
 			this->pos = {x, y};
 			this->move_cooldown = move_cooldown;
+			sprite = Texture(texture_name);
 		}
 
 		//Функция находит кратчайший путь врагу до игрока по карте

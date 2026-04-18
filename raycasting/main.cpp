@@ -721,7 +721,6 @@ void start_menu() {
 int main() {
 	start_menu();
 
-	
 	srand(time(NULL));
 
 	//РЕНДЕРИНГ && ДВИЖЕНИЕ
@@ -729,6 +728,13 @@ int main() {
 	cin.tie(nullptr);
 	ios_base::sync_with_stdio(false);
 	wcout.rdbuf()->pubsetbuf(nullptr, 8192);
+
+	HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
+	DWORD dwMode = 0;
+	GetConsoleMode(hOut, &dwMode);
+	dwMode |= ENABLE_VIRTUAL_TERMINAL_PROCESSING; // Включает поддержку \033
+	dwMode |= DISABLE_NEWLINE_AUTO_RETURN;       // Убирает перенос строки, который портит последний символ
+	SetConsoleMode(hOut, dwMode);
 
 	//заранее создаем кадр для оптимизации вывода
 	wstring frame;
@@ -778,42 +784,7 @@ int main() {
 	vector<game::Enemy> enemys; //= {enemy1, enemy2, enemy3, enemy4, enemy5};
 
 	//Инициализируем логику текстур стен
-	//Открываем файл с текстурой стены
-	ifstream wall_texture_file("wall_texture.txt");
-
-	//Вектор изначального представления текстуры
-	vector<vector<game::Color>> wall_textures;
-	string line_wall_file;
-
-	while (getline(wall_texture_file, line_wall_file)) {
-		//Разделяем все отдельные слова
-		stringstream extractable_row(line_wall_file);
-		string temporary;
-		vector<game::Color> temp_vec;
-
-		//Читаем все слова из текущей строки
-
-		while (extractable_row >> temporary) {
-			game::Color color_to_add;
-
-			if (temporary == "GREEN") {
-				color_to_add = game::GREEN;
-			} else {
-				color_to_add = game::WHITE;
-			}
-
-			temp_vec.push_back(color_to_add);
-		}
-
-		wall_textures.push_back(temp_vec);
-	}
-
-	wall_texture_file.close();
-
-	//Константые размеры текстур в длину/ширину
-	const int texture_hor = wall_textures[0].size();
-	const int texture_vert = wall_textures.size();
-	
+	game::Texture wall_texture("wall_texture.txt");
 
 	//Собираем список всех врагов при помощи рандома
 	while (enemys.size() < enemys_left) {
@@ -1018,22 +989,23 @@ int main() {
 		//центр экрана
 		const int mid = HEIGHT / 2;
 
-		const int csh = sh;
-		const int csw = sw;
+		//Сердце ренгеринга. Хранит в себе данные о небе, поле и стенах.
+		vector<vector<wstring>> map_grid(sh, vector<wstring>(sw));
 
-		//отображаемая в консоли сетка
-		//"-" -пусто, "#" - стена
-		vector<vector<wstring>> map_grid(sh, vector<wstring>(sw));//[csh][csw];
+		//Хранит в себе данные о цвете пикселя
+		vector<vector<game::Color>> frame_colors_pixels(sh, vector<game::Color>(sw));
 
 		//заполняем небом и полом
 		for (int i = 0; i < sh; i++) {
 			for (int j = 0; j < sw; j++) {
 				//верхняя половина - небо
 				if (i < sh/2) {
-					map_grid[i][j] = SetColor(game::CYAN) + rectangles[3] + ResetColor();
+					frame_colors_pixels[i][j] = game::CYAN;
+					map_grid[i][j] = rectangles[3];
 				//пол
 				} else {
-					map_grid[i][j] = SetColor(game::YELLOW) + rectangles[3] + ResetColor();
+					frame_colors_pixels[i][j] = game::YELLOW;
+					map_grid[i][j] = rectangles[3];
 				}
 				
 			}
@@ -1078,7 +1050,7 @@ int main() {
 
 			//Координата текстуры, из которой берем пиксель. Умножаем общую ширину текстуры на относительную координату
 			//попадания
-			int tex_x = (int)(U * texture_hor);
+			int tex_x = (int)(U * wall_texture.texture_hor);
 
 			//чем дальше стена (т.е больше d), тем бледнее символ
 			//проходимся от самого верха рассчитанной стены до самого низа
@@ -1093,28 +1065,33 @@ int main() {
 				double V = (double)(y - s_upwall) / (double)(s_lowall - s_upwall);
 
 				//Находим ту же координату по y
-				int tex_y = (int)(V * texture_vert);
+				int tex_y = (int)(V * wall_texture.texture_vert);
 
 				//Проверяем, не вылетели ли мы за границы текстуры: не стало ли меньше нуля или больше размера текстуры
-				tex_y = max(0, min(texture_vert, tex_y));
-				tex_x = max(0, min(texture_hor, tex_x));
+				tex_y = max(0, min(wall_texture.texture_vert, tex_y));
+				tex_x = max(0, min(wall_texture.texture_hor, tex_x));
 
 				//Проверяем, не вылетел ли y за границы
 				if (y >= 0 and y < sh) {
 					//Если враг, то рисуем красным цветом вне зависимости от расстояния
 					if (collision_type == 2) {
-						map_grid[y][i] = SetColor(game::RED) + rectangles[0] + ResetColor();
+						frame_colors_pixels[y][i] = game::RED;
+						map_grid[y][i] = rectangles[0];
 					//Если стена, то отрисовываем текстурами в зависимости от расстояния
 					} else {
 						//Берём цвет из текстуры по вычисленным координатам
 						if (d <= 1) {
-							map_grid[y][i] = SetColor(wall_textures[tex_y][tex_x]) + rectangles[0] + ResetColor();
+							frame_colors_pixels[y][i] = wall_texture.texture[tex_y][tex_x];
+							map_grid[y][i] = rectangles[0];
 						} else if (d > 1 and d <= 2) {
-							map_grid[y][i] = SetColor(wall_textures[tex_y][tex_x]) + rectangles[1] + ResetColor();
+							frame_colors_pixels[y][i] = wall_texture.texture[tex_y][tex_x];
+							map_grid[y][i] = rectangles[1];
 						} else if (d > 2 and d <= 3) {
-							map_grid[y][i] = SetColor(wall_textures[tex_y][tex_x]) + rectangles[2] + ResetColor();
+							frame_colors_pixels[y][i] = wall_texture.texture[tex_y][tex_x];
+							map_grid[y][i] = rectangles[2];
 						} else if (d < MAX_DIST) {
-							map_grid[y][i] = SetColor(wall_textures[tex_y][tex_x]) + rectangles[3] + ResetColor();
+							frame_colors_pixels[y][i] = wall_texture.texture[tex_y][tex_x];
+							map_grid[y][i] = rectangles[3];
 						}
 					}
 				}
@@ -1144,6 +1121,8 @@ int main() {
 		//Эта переменная говорит, встречали ли мы такую часть пистолета, которая не является пустым местом? Если да, то мы закрашиваем пробелы. Иначе нет
 		bool met_pistol_parts = false;
 
+		int prev_colour = -1;
+
 		//сбор основного кадра + мини-карты справа
 		//sh и sw - это наше разрешение, которое должно быть заполнено на 100%
 		for (int y = 0; y < sh; y++) {
@@ -1155,6 +1134,9 @@ int main() {
 						and p_x < min(pistol.pistol_width, sw) and p_y < min(pistol.pistol_height, sh)) {
 						//Проверяем, не является ли символ пробелом. Если нет, то в кадр добавляем часть пистолета, иначе - карту
 						if (pistol.pistol_body[p_y][p_x] != ' ') {
+							if (!met_pistol_parts) {
+								frame += ResetColor();
+							}
 							frame += pistol.pistol_body[p_y][p_x];
 							met_pistol_parts = true;
 						//закрашиваем внутренность пистолета, если мы встречали символы-не-пробелы, т.е. мы в середине пистолета, где пробелы означают заливку
@@ -1162,7 +1144,13 @@ int main() {
 							frame += SetColor(game::BLACK) + rectangles[2] + ResetColor();
 						} //Иначе добавляем часть карты, так как мы закрасили всё, что нужно, а дальше идут выравнивательные пробелы
 						else {
-							frame += map_grid[y][x];
+							if (prev_colour == -1) {
+								frame += SetColor(frame_colors_pixels[y][x]) + map_grid[y][x];
+							} else if (prev_colour != (int)frame_colors_pixels[y][x]) {
+								frame += ResetColor() + SetColor(frame_colors_pixels[y][x]) + map_grid[y][x];
+							} else {
+								frame += map_grid[y][x];
+							}
 						}
 
 						//Прибавляем p_x в любом случае, так как все, что дальше, является пистолетом
@@ -1170,7 +1158,13 @@ int main() {
 
 						//иначе просто добавляем в кадр фрагмент карты
 					} else {
-						frame += map_grid[y][x];
+						if (prev_colour == -1) {
+							frame += SetColor(frame_colors_pixels[y][x]) + map_grid[y][x];
+						} else if (prev_colour != (int)frame_colors_pixels[y][x]) {
+							frame += ResetColor() + SetColor(frame_colors_pixels[y][x]) + map_grid[y][x];
+						} else {
+							frame += map_grid[y][x];
+						}
 					}
 				//Отрисовываем стреляющий пистолет
 				} else {
@@ -1178,6 +1172,10 @@ int main() {
 					if (y >= pistol.pistol_fire_start_y and x >= pistol.pistol_start_x
 						and p_x < min(pistol.pistol_width, sw) and p_y < min(pistol.pistolfire_height, sh)) {
 						if (pistol.pistol_fire_body[p_y][p_x] != ' ') {
+							if (!met_pistol_parts) {
+								frame += ResetColor();
+							}
+
 							//Рисуем эффект выстрела, если ноль
 							if (pistol.pistol_fire_body[p_y][p_x] == '0') {
 								frame += SetColor(game::YELLOW) + rectangles[0] + ResetColor();
@@ -1192,7 +1190,13 @@ int main() {
 							frame += SetColor(game::BLACK) + rectangles[2] + ResetColor();
 						} //Иначе добавляем часть карты, чтобы пистолет был прозрачным
 						else {
-							frame += map_grid[y][x];
+							if (prev_colour == -1) {
+								frame += SetColor(frame_colors_pixels[y][x]) + map_grid[y][x];
+							} else if (prev_colour != (int)frame_colors_pixels[y][x]) {
+								frame += ResetColor() + SetColor(frame_colors_pixels[y][x]) + map_grid[y][x];
+							} else {
+								frame += map_grid[y][x];
+							}
 						}
 
 						//Прибавляем p_x в любом случае, так как все, что дальше, является пистолетом
@@ -1200,7 +1204,13 @@ int main() {
 
 						//иначе просто добавляем в кадр фрагмент карты
 					} else {
-						frame += map_grid[y][x];
+						if (prev_colour == -1) {
+							frame += SetColor(frame_colors_pixels[y][x]) + map_grid[y][x];
+						} else if (prev_colour != (int)frame_colors_pixels[y][x]) {
+							frame += ResetColor() + SetColor(frame_colors_pixels[y][x]) + map_grid[y][x];
+						} else {
+							frame += map_grid[y][x];
+						}
 					}
 				}
 				
@@ -1219,11 +1229,12 @@ int main() {
 			
 
 			//очищаем строку
-			frame += L"\033[K";
+			//frame += L"\033[K";
 
 			//добавляем мини-карту справа
 			if (ws_y > 5 and ws_i < MAP_SIZE) {
 				//отступ
+				frame += ResetColor();
 				frame += L"                 ";
 				frame += minimap[ws_i];
 				ws_i++;
@@ -1251,12 +1262,19 @@ int main() {
 		//сбор отладочной информации
 		string debug;
 
+		string str_fps = to_string(FPS);
+
+		//Выравниваем FPS всегда до трехзначного числа, чтобы консоль не мерцала
+		if (FPS < 100) {
+			str_fps.insert(str_fps.begin(), '0');
+		}
+
 		debug += "DEBUG INFO: ";
 		debug += "angle: "; debug += to_string(player.angle); 
 		debug += " direction: "; debug += dir_s;
 		debug += " x: "; debug += to_string(player.x);
 		debug += " y: "; debug += to_string(player.y);
-		debug += " FPS: "; debug += to_string(FPS);
+		debug += " FPS: "; debug += str_fps;
 		debug += " Enemys: "; debug += to_string(enemys_left);
 		if (enemys_left == 0) {
 			debug += ". Now find exit!";
@@ -1265,7 +1283,8 @@ int main() {
 		//превращаем в int и прибавляем 0.9, так как вывод показывает 0, хотя например может быть 0.9, то есть ждать ещё почти секунду
 		debug += "\nPistol reload time: "; debug += to_string(max(0, (int) (pistol.current_cd+0.9)));
 
-		//добавляем ANSI-код удаления строки, а потом на чистую строку добавляем отладучную инфу
+		//добавляем ANSI-код удаления строки, а потом на чистую строку добавляем отладочную инфу
+		frame += ResetColor();
 		frame += L"\033[K";
 
 		//добавляем отладочную инфу
