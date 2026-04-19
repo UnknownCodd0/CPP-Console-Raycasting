@@ -711,6 +711,7 @@ void start_menu() {
 			}
 		}
 
+		//Обновляем установленные значения констант
 		scale = configuration_table.at(current_choose_string);
 		sh = HEIGHT / scale;
 		sw = WIDTH / scale;
