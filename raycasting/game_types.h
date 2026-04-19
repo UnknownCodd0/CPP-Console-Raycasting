@@ -133,13 +133,13 @@ namespace game {
 			this->move_cooldown = move_cooldown;
 		}
 
-		Enemy(int x, int y, int id, double move_cooldown, std::string texture_name) {
+		Enemy(int x, int y, int id, double move_cooldown, game::Texture spr_texture) {
 			this->x = x;
 			this->y = y;
 			this->id = id;
 			this->pos = {x, y};
 			this->move_cooldown = move_cooldown;
-			sprite = Texture(texture_name);
+			sprite = spr_texture;
 		}
 
 		//Функция находит кратчайший путь врагу до игрока по карте

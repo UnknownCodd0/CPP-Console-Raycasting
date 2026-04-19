@@ -79,7 +79,7 @@ int sw = WIDTH / scale, sh = HEIGHT / scale;
 int enemys_left = 8;
 
 //Отладочная переменная. Если true, то играется начальный экран, иначе нет. По умолчанию должно стоять true
-const bool play_intro = false;
+const bool play_intro = true;
 
 //Карта в начале игры
 const string start_map[MAP_SIZE] = {
@@ -641,7 +641,7 @@ void start_menu() {
 			}
 		}
 
-		this_thread::sleep_for(chrono::milliseconds(100));
+		this_thread::sleep_for(chrono::milliseconds(200));
 		string current_choose_string = difficulty_easy;
 
 		while (true) {
@@ -677,7 +677,7 @@ void start_menu() {
 
 		enemys_left = configuration_table.at(current_choose_string);
 
-		this_thread::sleep_for(chrono::milliseconds(100));
+		this_thread::sleep_for(chrono::milliseconds(200));
 		current_choose_string = resolution_low;
 
 		while (true) {
@@ -740,7 +740,7 @@ int main() {
 	wstring frame;
 
 	//освобождаем достаточно места
-	frame.reserve(65536*2);
+	frame.reserve(65536 * 2);
 
 	//задавание стартовых координат и данных игрока
 	double start_angle = 0;
@@ -757,31 +757,34 @@ int main() {
 	set_cursor(0, 0);
 
 	//Инициализируем класс пистолета
-	Pistol pistol{"gun.txt", "gun_fire.txt"};
+	Pistol pistol{ "gun.txt", "gun_fire.txt" };
 
 	//Вектор ascii прямоугольников рендеринга
 	//Чем больше значение в квадратных скобках, тем бледнее квадрат. Всего 4.
-	vector<wchar_t> rectangles = {L'█', L'▓', L'▒', L'░'};
+	vector<wchar_t> rectangles = { L'█', L'▓', L'▒', L'░' };
 
 	//Перезарядка звука шага
 	const double STEP_COOLDOWN = 0.7;
 	double current_step_cooldown = 0;
 
-	//инициализация врагов. 9 врагов. 5 из них рандомно попадут в игру
-	game::Enemy enemy1(18, 1, 0, 1);
-	game::Enemy enemy2(8, 1, 1, 0.5);
-	game::Enemy enemy3(4, 5, 2, 0.7);
-	game::Enemy enemy4(12, 11, 3, 0.2);
-	game::Enemy enemy5(9, 16, 4, 0);
-	game::Enemy enemy6(1, 10, 5, 0.9);
-	game::Enemy enemy7(14, 5, 6, 0.3);
-	game::Enemy enemy8(18, 18, 7, 1);
-	game::Enemy enemy9(13 ,13, 8, 0.1);
+	//Текстура врага (одинаковая у всех)
+	game::Texture enemy_texture("enemy_texture.txt");
 
-	vector<game::Enemy> all_enemys = {enemy1, enemy2, enemy3, enemy4, enemy5, enemy6, enemy7, enemy8, enemy9};
+	//инициализация врагов. 9 врагов. В зависимости от сложности несколько из них рандомно попадут в игру
+	game::Enemy enemy1(18, 1, 0, 1, enemy_texture);
+	game::Enemy enemy2(8, 1, 1, 0.5, enemy_texture);
+	game::Enemy enemy3(4, 5, 2, 0.7, enemy_texture);
+	game::Enemy enemy4(12, 11, 3, 0.2, enemy_texture);
+	game::Enemy enemy5(9, 16, 4, 0, enemy_texture);
+	game::Enemy enemy6(1, 10, 5, 0.9, enemy_texture);
+	game::Enemy enemy7(14, 5, 6, 0.3, enemy_texture);
+	game::Enemy enemy8(18, 18, 7, 1, enemy_texture);
+	game::Enemy enemy9(13, 13, 8, 0.1, enemy_texture);
+
+	vector<game::Enemy> all_enemys = { enemy1, enemy2, enemy3, enemy4, enemy5, enemy6, enemy7, enemy8, enemy9 };
 
 	//Список всех живых на данный момент врагов. При смерти врага он будет удален из списка в классе Pistol
-	vector<game::Enemy> enemys; //= {enemy1, enemy2, enemy3, enemy4, enemy5};
+	vector<game::Enemy> enemys;
 
 	//Инициализируем логику текстур стен
 	game::Texture wall_texture("wall_texture.txt");
@@ -868,7 +871,7 @@ int main() {
 				pistol.shooting = false;
 				pistol.shooting_animation_for = 0;
 			}
-			
+
 		}
 
 		//Добавляем на карту врагов, чтобы при рассчетах они не врезались друг в друга
@@ -896,7 +899,7 @@ int main() {
 		}
 
 		//Проверяем, не попал ли враг на блок игрока?
-		if (game_map[(int) player.y][(int) player.x] == '2') {
+		if (game_map[(int)player.y][(int)player.x] == '2') {
 			//Если попал, то игрок проиграл
 			won = false;
 			break;
@@ -971,9 +974,9 @@ int main() {
 		if (GetAsyncKeyState(VK_SPACE) & 0x8000) {
 			pistol.shoot(player, enemys);
 		}
-		
+
 		//обновляем game::Vector2 позицию игрока
-		player.pos = {player.x, player.y};
+		player.pos = { player.x, player.y };
 
 
 		/////!!!!!РЕНДЕРИНГ
@@ -999,19 +1002,85 @@ int main() {
 		for (int i = 0; i < sh; i++) {
 			for (int j = 0; j < sw; j++) {
 				//верхняя половина - небо
-				if (i < sh/2) {
+				if (i < sh / 2) {
 					frame_colors_pixels[i][j] = game::CYAN;
 					map_grid[i][j] = rectangles[3];
-				//пол
+					//пол
 				} else {
 					frame_colors_pixels[i][j] = game::YELLOW;
 					map_grid[i][j] = rectangles[3];
 				}
-				
+
 			}
 		}
 
-		//Собираем все пиксели на экране (sw - ширина экрана в "пикселях")
+		game::Vector2i last_enemy_pos = { -1, -1 };
+		vector<pair<int, game::RayResult>> last_enemy_rays;
+		vector<vector<pair<int, game::RayResult>>> enemys_and_their_rays;
+
+		//Заранее предпосчитаем те лучи, которые попали на врагов, и изменяем их до одного расстояния минимального из всех лучей,
+		//Чтобы создать плоскую проекцию
+		for (int i = 0; i < sw; i++) {
+			//Текущий луч
+			game::RayResult rr = distances[i];
+
+			//Если луч попал на врага
+			if (rr.type == 2) {
+				//Если луч не принадлежит прошлому врагу и не принадлежит начальному значению
+				if ((rr.intersection_x != last_enemy_pos.x or rr.intersection_y != last_enemy_pos.y)
+					and (last_enemy_pos.x != -1 or last_enemy_pos.y != -1)) {
+					
+					//Обновляем прошлого врага на текущего
+					last_enemy_pos.x = rr.intersection_x;
+					last_enemy_pos.y = rr.intersection_y;
+
+					//Высчитываем луч с минимальным расстоянием
+					double min_ray_dist = 1e9;
+					game::RayResult min_ray;
+
+					for (auto j : last_enemy_rays) {
+						if (j.second.dist < min_ray_dist) {
+							min_ray_dist = j.second.dist;
+							min_ray = j.second;
+						}
+					}
+
+					//Приравниваем расстояния всех лучей к этому для создания плоского изображения
+					for (int i = 0; i < last_enemy_rays.size(); i++) {
+						auto curr_ray = last_enemy_rays[i].second;
+						curr_ray.dist = min_ray_dist;
+						//curr_ray.d_ix = min_ray.d_ix;
+						//curr_ray.d_iy = min_ray.d_iy;
+						//curr_ray.intersection_x = min_ray.intersection_x;
+						//curr_ray.intersection_y = min_ray.intersection_y;
+						curr_ray.was_vertical = min_ray.was_vertical;
+						//auto curr_ray = min_ray;
+
+						last_enemy_rays[i].second = curr_ray;
+					}
+
+					//Добавляем группу лучей, указывающих всех на 1 врага
+					enemys_and_their_rays.push_back(last_enemy_rays);
+					last_enemy_rays.clear();
+				} else {
+					if (last_enemy_pos.x == -1 and last_enemy_pos.y == -1) {
+						last_enemy_pos.x = rr.intersection_x;
+						last_enemy_pos.y = rr.intersection_y;
+					}
+
+					//Добавляем луч в группу всех лучей, принадлежащих 1 врагу
+					last_enemy_rays.push_back({ i, rr });
+				}
+			}
+		}
+
+		//Если мы не смогли записать группу в список всех групп, то записываем её
+		if (last_enemy_rays.size() > 0) {
+			enemys_and_their_rays.push_back(last_enemy_rays);
+			last_enemy_rays.clear();
+		}
+
+		//Собираем все пиксели стен на экране (sw - ширина экрана в "пикселях"), но не врагов!
 		for (int i = 0; i < sw; i++) {
 			//расстояние до рассматриваемой точки
 			double d = distances[i].dist;
@@ -1052,6 +1121,7 @@ int main() {
 			//попадания
 			int tex_x = (int)(U * wall_texture.texture_hor);
 
+
 			//чем дальше стена (т.е больше d), тем бледнее символ
 			//проходимся от самого верха рассчитанной стены до самого низа
 			//в map_grid[y][i] хранится wstring, состоящий из: ANSI-префикс цвета, отрендеренный символ, ANSI-суффикс цвета
@@ -1067,19 +1137,14 @@ int main() {
 				//Находим ту же координату по y
 				int tex_y = (int)(V * wall_texture.texture_vert);
 
+
 				//Проверяем, не вылетели ли мы за границы текстуры: не стало ли меньше нуля или больше размера текстуры
 				tex_y = max(0, min(wall_texture.texture_vert, tex_y));
 				tex_x = max(0, min(wall_texture.texture_hor, tex_x));
 
 				//Проверяем, не вылетел ли y за границы
 				if (y >= 0 and y < sh) {
-					//Если враг, то рисуем красным цветом вне зависимости от расстояния
-					if (collision_type == 2) {
-						frame_colors_pixels[y][i] = game::RED;
-						map_grid[y][i] = rectangles[0];
-					//Если стена, то отрисовываем текстурами в зависимости от расстояния
-					} else {
-						//Берём цвет из текстуры по вычисленным координатам
+					if (collision_type == 1) {
 						if (d <= 1) {
 							frame_colors_pixels[y][i] = wall_texture.texture[tex_y][tex_x];
 							map_grid[y][i] = rectangles[0];
@@ -1097,6 +1162,55 @@ int main() {
 				}
 			}
 		}
+
+		//Теперь мы добавляем врагов на карту по высчитанным лучам
+		for (auto enemy_rays : enemys_and_their_rays) {
+			//Расстояние до врага (равно для всех лучей одной группы)
+			double dist_enemy = enemy_rays[0].second.dist;
+
+			//Индекс текущего луча
+			int ray_pos_vec = 0;
+
+			//Рассчитываем ширину спрайта в пикселях экрана (т.е. кол-во лучей в группе)
+			int sprite_screen_width = enemy_rays.size();
+
+			for (auto current_en_ray : enemy_rays) {
+				//Примерно такая же логика, как и со стенами
+				double line_height = b * dx / (dist_enemy + EPS);
+
+				//верхняя и нижняя часть стены; остальное - пол/небо
+				int upper_wall = mid - (line_height / 2);
+				int lower_wall = mid + (line_height / 2);
+
+				//верхняя и нижняя часть стены в масштабе
+				int s_upwall = upper_wall / scale;
+				int s_lowall = lower_wall / scale;
+
+				//Так как мы оперируем 2D-объектом, то мы наклеиваем на него текстуры чуть проще (иначе текстуры
+				//будут накладываться как на 3D-объект)
+
+				//Вычисляем относительную позицию текущего луча относительно проекции спрайта
+				int tex_x = (ray_pos_vec * enemy_texture.texture_hor) / sprite_screen_width;
+
+				for (int y = s_upwall; y < s_lowall; y++) {
+					//Логики по вертикали такая же, как и со стенами
+					double V = (double)(y - s_upwall) / (double)(s_lowall - s_upwall);
+					int tex_y = (int)(V * (enemy_texture.texture_vert));
+
+					tex_y = max(0, min(enemy_texture.texture_vert-1, tex_y));
+					tex_x = max(0, min(enemy_texture.texture_hor-1, tex_x));
+
+					if (y >= 0 and y < sh) {
+						frame_colors_pixels[y][current_en_ray.first] = enemy_texture.texture[tex_y][tex_x]; //game::RED;
+						map_grid[y][current_en_ray.first] = rectangles[0];
+					}
+				}
+
+				ray_pos_vec++;
+			}
+		}
+
+
 
 		//!!!собираем отрендеренный кадр
 
@@ -1139,7 +1253,7 @@ int main() {
 							}
 							frame += pistol.pistol_body[p_y][p_x];
 							met_pistol_parts = true;
-						//закрашиваем внутренность пистолета, если мы встречали символы-не-пробелы, т.е. мы в середине пистолета, где пробелы означают заливку
+							//закрашиваем внутренность пистолета, если мы встречали символы-не-пробелы, т.е. мы в середине пистолета, где пробелы означают заливку
 						} else if (met_pistol_parts and p_x < pistol.pistol_last_symbol[p_y]) {
 							frame += SetColor(game::BLACK) + rectangles[2] + ResetColor();
 						} //Иначе добавляем часть карты, так как мы закрасили всё, что нужно, а дальше идут выравнивательные пробелы
@@ -1166,7 +1280,7 @@ int main() {
 							frame += map_grid[y][x];
 						}
 					}
-				//Отрисовываем стреляющий пистолет
+					//Отрисовываем стреляющий пистолет
 				} else {
 					//Та же логика. Но высота двух пистолей разная, ширина - та же
 					if (y >= pistol.pistol_fire_start_y and x >= pistol.pistol_start_x
@@ -1179,11 +1293,11 @@ int main() {
 							//Рисуем эффект выстрела, если ноль
 							if (pistol.pistol_fire_body[p_y][p_x] == '0') {
 								frame += SetColor(game::YELLOW) + rectangles[0] + ResetColor();
-							//Иначе рисуем сам пистолет
+								//Иначе рисуем сам пистолет
 							} else {
 								frame += pistol.pistol_fire_body[p_y][p_x];
 							}
-				
+
 							met_pistol_parts = true;
 							//закрашиваем внутренность пистолета
 						} else if (met_pistol_parts and p_x < pistol.pistol_fire_last_symbol[p_y]) {
@@ -1213,7 +1327,7 @@ int main() {
 						}
 					}
 				}
-				
+
 			}
 
 			//Проверяем две начальные точки для стреляющего и нестреляющего пистолета
@@ -1226,7 +1340,7 @@ int main() {
 				p_x = 0;
 				met_pistol_parts = false;
 			}
-			
+
 
 			//очищаем строку
 			//frame += L"\033[K";
@@ -1244,7 +1358,7 @@ int main() {
 
 			frame += L'\n';
 		}
-		
+
 		//отладочная информация
 		string dir_s;
 
@@ -1270,7 +1384,7 @@ int main() {
 		}
 
 		debug += "DEBUG INFO: ";
-		debug += "angle: "; debug += to_string(player.angle); 
+		debug += "angle: "; debug += to_string(player.angle);
 		debug += " direction: "; debug += dir_s;
 		debug += " x: "; debug += to_string(player.x);
 		debug += " y: "; debug += to_string(player.y);
@@ -1281,7 +1395,7 @@ int main() {
 		}
 
 		//превращаем в int и прибавляем 0.9, так как вывод показывает 0, хотя например может быть 0.9, то есть ждать ещё почти секунду
-		debug += "\nPistol reload time: "; debug += to_string(max(0, (int) (pistol.current_cd+0.9)));
+		debug += "\nPistol reload time: "; debug += to_string(max(0, (int)(pistol.current_cd + 0.9)));
 
 		//добавляем ANSI-код удаления строки, а потом на чистую строку добавляем отладочную инфу
 		frame += ResetColor();
@@ -1346,7 +1460,7 @@ int main() {
 		//Задерживаем, чтобы консоль случайно не закрылась от случайного нажатия клавиши
 		this_thread::sleep_for(chrono::milliseconds(1000));
 
-	//Иначе выводим ASCII-арт "YOU LOSE!"
+		//Иначе выводим ASCII-арт "YOU LOSE!"
 	} else {
 		vector<string> lose_text;
 		ifstream ltxt("losetext.txt");
@@ -1368,7 +1482,7 @@ int main() {
 		//Задерживаем, чтобы консоль случайно не закрылась от случайного нажатия клавиши
 		this_thread::sleep_for(chrono::milliseconds(1000));
 	}
-	
+
 	return 0;
 }
 

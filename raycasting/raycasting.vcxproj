@@ -233,6 +233,7 @@
     <ClCompile Include="main.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <Text Include="enemy_texture.txt" />
     <Text Include="gun.txt" />
     <Text Include="gun_fire.txt" />
     <Text Include="losetext.txt" />

@@ -43,5 +43,8 @@
     <Text Include="wall_texture.txt">
       <Filter>Файлы ресурсов</Filter>
     </Text>
+    <Text Include="enemy_texture.txt">
+      <Filter>Файлы ресурсов</Filter>
+    </Text>
   </ItemGroup>
 </Project>
